@@ -31,7 +31,7 @@ def multivariate_adf_test(data):
 # Calculates and Outputs a Matrix consisting of a Granger Causality Test
 # for each pair of Variables, where values below 0.05 indicate that the
 # Variable of the Column can be used to predict the Variable of the Row
-def granger_causality_matrix(data, maxlag=10):
+def granger_causality_matrix(data, maxlag=10, plot=False):
     cols = len(data.columns)
     matrix = np.zeros([cols, cols])
     for i, row in enumerate(data.columns):
@@ -41,6 +41,10 @@ def granger_causality_matrix(data, maxlag=10):
             for lag in range(1, maxlag + 1):
                 p_values.append(test_results[lag][0]['ssr_chi2test'][1])
             matrix[i, j] = min(p_values)
+    if plot:
+        plt.imshow(matrix)
+        plt.colorbar()
+        plt.show()
     return matrix
 
 # Performs Ljung-Box Test on the Residuals of a given Model
@@ -87,6 +91,9 @@ def fit_var(data, p, summary=True):
         print(model_fit.summary())
     return model_fit
 
+def calculate_mae(ts, predicted):
+    return np.mean(np.abs(predicted - ts))
+
 # Creates a VAR Model used for predicting a given Time Series
 def predict_var(data, p, split):
     data_tr, data_ts = split_ts(data, split)
@@ -98,4 +105,14 @@ def predict_var(data, p, split):
         for i in range(len(data.columns)):
             predictions[i].append(output[0][i])
     for i in range(len(data.columns)):
+        print('MAE(' + data.columns[i] + '):', calculate_mae(data[data.columns[i]][split:], predictions[i]))
         plot_predicted(data[data.columns[i]], predictions[i], split + 1)
+
+# Receives a Trained VAR Model and plots its Forecast up to a given Time Value
+def forecast_var(model_fit, ts, limit):
+    p = model_fit.k_ar
+    forecast_input = ts[-p:].values
+    fc = model_fit.forecast(y=forecast_input, steps=limit)
+    for i in range(len(ts.columns)):
+        plot_predicted(ts[ts.columns[i]], fc[:, i], len(ts))
+    return fc
