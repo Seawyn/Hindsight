@@ -7,51 +7,27 @@ import statsmodels.tsa.api as smt
 from statsmodels.tsa.arima_model import ARIMA
 from statsmodels.tsa.stattools import adfuller
 
-# Calculates Average of a Time Series
-# Note: Assumes Input is Stationary
-def average(ts):
-	return sum(ts) / len(ts)
-
-# Calculates the Autocovariance Function
-# Note: Uses Stationary Average
-# TODO: Look into slightly different values
-def acovf(ts, limit=None):
-	if limit is None:
-		limit = len(ts) - 1
-	elif len(ts) < 2:
-		raise ValueError('Input too small')
-	elif len(ts) <= limit:
-		raise ValueError('Limit too large')
-	elif limit <= 0:
-		raise ValueError('Limit must be a positive value')
-	
-	covariance_values = []
-	miu = average(ts)
-	
-	for i in range(limit):
-		val = 0
-		for j in range(i + 1, len(ts)):
-			val += (ts[j] - miu) * (ts[j - i] - miu)
-		covariance_values.append(val / (len(ts) - 1))
-	
-	return covariance_values
+# TODO: Change ARIMA to SARIMAX
+# TODO: Add parameter selection methods
+# TODO: Change to Plotly
+# TODO: Add time series simulation
 
 # Opens file with the name given as input
-# Note: Assumes values are tab-separated
+# Use header = 0 if variables have names
+# Use transpose if in a classification context, leave as is if using regression
 # Outputs a DataFrame Object
-def read_file(filename, header=None, transpose=False):
-	df = pd.read_csv(filename, sep="\t", header=header)
-	if transpose:
+def read_dataset(filename, header=None, classification=False, sep=","):
+	df = pd.read_csv(filename, sep=sep, header=header)
+	if classification:
 		return df.transpose()
 	else:
 		return df
 
-# Receives DataFrame as input and returns a Dictionary indexed by class
-def format_data(df):
-	data = {}
-	for i in range(len(df.loc[0, :])):
-		data[int(df.loc[0, i])] = df[i].drop([0])
-	return data
+# Opens a given dataset and exports the to_extract column/columns to a csv file
+# csv file is comma separated
+def export_ts(filename, to_extract, output_name):
+	df = pd.read_csv(filename)
+	df[to_extract].to_csv(output_name)	
 
 # Creates a plot with Chronogram and Autocorrelation Function of input
 def visualize_ts(df, savename=None):
@@ -143,6 +119,10 @@ def difference(df, order=1):
 def split_ts(ts, split):
 	return ts[0:split], ts[split:]
 
+# Calculates Mean Absolute Error between two Vectors
+def calculate_mae(ts, predicted):
+    return np.mean(np.abs(predicted - ts))
+
 # Creates and Trains an ARIMA Model with given Time Series and Parameters
 def fit_arima(ts, p, d, q, summary=True):
 	model = ARIMA(ts, order=(p, d, q))
@@ -169,10 +149,11 @@ def predict_arima(ts, p, d, q, split):
 		predictions.append(output[0])
 		tr_ts.append(te_ts[i])
 		print("Predicted:", output[0][0], ", Expected:", te_ts[i])
+	print('MAE:', calculate_mae(np.array(te_ts), np.array(predictions)))
 	plot_predicted(ts, predictions, split)
 	return model_fit
 
-# Receives a Trained ARIMA Model and plots it's Forecast up to a given Time Value
+# Receives a Trained ARIMA Model and plots its Forecast up to a given Time Value
 def forecast_arima(model_fit, ts, limit):
 	output = model_fit.forecast(steps=limit)
 	fill = np.array(output[2])
