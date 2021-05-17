@@ -42,9 +42,9 @@ def visualize_ts(df, savename=None):
 		plt.savefig(savename)
 
 # Returns Autocorrelation and Partial Autocorrelation Functions of of the input
-def get_acf_and_pacf(df):
+def get_acf_and_pacf(df, alpha=0.05):
 	n_lags = min(50, (len(df) // 2) - 1)
-	acf_data = acf(df, nlags=n_lags, fft=True)
+	acf_data = acf(df, nlags=n_lags, fft=True, alpha=alpha)
 	pacf_data = pacf(df, nlags=n_lags, method='ywm')
 	return acf_data, pacf_data
 
