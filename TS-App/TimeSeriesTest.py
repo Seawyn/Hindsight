@@ -347,12 +347,14 @@ app.layout = html.Div(children=[
     #       - Add PCMCI
     #       - Parameter selection: order
     #       - Focus on a single variable
+    # TODO: Neural Networks:
+    #       - t Parameter
+    #       - Dropout
+    #       - Different sizes between y_test and predicted values
+    #       - Batch size
+    #       - Number of epochs
     # TODO: Ask for Dataset upon startup
     # TODO: Export model and/or dataset
-    # TODO: Neural Networks:
-    #       - Confidence interval
-    #       - Multiple output
-    #       - Multiple models
     # TODO: Loading status for training/forecasting models
     # TODO: Change label position in each plot
 
@@ -904,7 +906,7 @@ def train_nn(model, window_size, output_size, seed, data, available_vars, split,
 
             df = df[available_vars]
 
-            last_nn, nn_res = nn_process(df, model, window_size, split, available_vars, forecast_window, hyperparam_data, seed=seed)
+            last_nn, nn_res = nn_process(df, model, window_size, split, available_vars, forecast_window, hyperparam_data, output_size=output_size, seed=seed)
 
             loss_data = pandas.DataFrame([nn_res['loss'], nn_res['val_loss']]).transpose()
             loss_data.columns = ['loss', 'val_loss']
@@ -913,9 +915,9 @@ def train_nn(model, window_size, output_size, seed, data, available_vars, split,
             training_set_res = pandas.DataFrame()
             for i in range(len(available_vars)):
                 training_set_res[available_vars[i]] = np.array(nn_res['training'])[:, i]
-                training_set_res[available_vars[i] + '_pred'] =  np.array(nn_res['training_res'][:, 0, 0])
-
-            print(training_set_res)
+                # Due to multi-output, results may differ in length
+                # Offset is represented by null values (ignored by plots)
+                training_set_res = training_set_res.join(pandas.DataFrame(np.array(nn_res['training_res'][:, 0, 0]), columns=[available_vars[i] + '_pred']))
 
             loss_plot = px.line(loss_data)
 

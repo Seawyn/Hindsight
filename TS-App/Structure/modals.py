@@ -226,7 +226,7 @@ nn_preferences_modal = html.Div([
                 dbc.Col([
                     html.Div([
                         'Dropout (Optional):',
-                        dcc.Input(id='dropout', type='number', min=0, max=1, placeholder='Dropout', style={'width': '100%'}),
+                        dcc.Input(id='dropout', type='number', min=0, max=1, value=0.2, placeholder='Dropout', style={'width': '100%'}),
                     ])
                 ]),
                 dbc.Col([

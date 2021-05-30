@@ -319,13 +319,20 @@ def var_process(df, p, split, vars, forecast_window):
     return last_var
 
 # Trains a Neural Network model and outputs a dictionary with all data (in json format)
-def nn_process(df, model, window_size, split, available_vars, forecast_window, hyperparam_data, seed=None):
-    res, seed, errors, residuals, history, pr_train, y_train = neural_network_regression(model, df, window_size, split, hyperparam_data, output_size=len(available_vars))
+def nn_process(df, model, window_size, split, available_vars, forecast_window, hyperparam_data, output_size=1, seed=None):
+    conf_int = not forecast_window is None
+    res, seed, errors, residuals, history, pr_train, y_train, forecast_data, conf_int_data = neural_network_regression(model, df, window_size, split, hyperparam_data, number_predictions=output_size, conf_int=conf_int, forecast_window=forecast_window)
+
+    # Convert any shape to (shape[0], 1, shape[n - 1])
+    pr_train = pr_train.reshape(pr_train.shape[0], 1, pr_train.shape[-1])
     pred_data = res.to_json()
 
-    # Still have to implement forecast data
-    forecast_data = None
-    conf_int_data = None
+    if not forecast_data is None and not conf_int_data is None:
+        forecast_data = forecast_data.to_json()
+        conf_int_data = conf_int_data.to_json()
+    else:
+        forecast_data = None
+        conf_int_data = None
 
     # Rough estimate
     nobs = len(df)
