@@ -22,7 +22,7 @@ def read_upload(contents):
     return df
 
 # Sets up dataset table and dropdown menus after initial load
-def setup_dataset(data):
+def setup_dataset(data, add_all=True):
     df = pandas.read_json(data).sort_index()
 
     # Update columns dropout
@@ -33,7 +33,9 @@ def setup_dataset(data):
         col_options.append({'label': col, 'value': col})
 
     # Update subjects dropout
-    ind_options = [{'label': 'All', 'value': 'all'}]
+    ind_options = []
+    if add_all:
+        ind_options.append({'label': 'All', 'value': 'all'})
     for subject in subjects(df, df.columns[0]):
         ind_options.append({'label': subject, 'value': subject})
 
@@ -52,9 +54,52 @@ def column_missingness(data):
             missing_status['high'].append(col)
     return missing_status
 
+# Returns info related to each column
 def get_column_info(data):
     tooltip_col_info = {}
     col_info = summary(data)
     for col in col_info.keys():
         tooltip_col_info[col] = {'value': col_info[col], 'type': 'markdown'}
     return tooltip_col_info
+
+# Returns a list of subjects and columns with missing values
+def check_missingness(data):
+    subjects_mv = []
+    cols_mv = []
+
+    # Check subjects with missing values
+    for subject in subjects(data, data.columns[0]):
+        current_data = get_subject(data, subject, data.columns[0])
+        number_of_nan = sum(current_data.isna().sum())
+        if number_of_nan > 0:
+            subjects_mv.append(subject)
+
+    # Check columns with missing values
+    nan_info = data.isna().sum()
+    for i in range(len(nan_info)):
+        # nan_info[i]: number of missing values
+        # nan_info.index[i]: related column
+        if nan_info[i] > 0:
+            cols_mv.append(nan_info.index[i])
+
+    return subjects_mv, cols_mv
+
+# Replace values in column of given data by a given replacement (number)
+def replace_in_dataset(data, col, val, replacement):
+    df = pandas.read_json(data).sort_index()
+    repl = {val: replacement}
+    return replace_in_col(df, col, repl)
+
+# Handles imputation behaviour
+def impute_ld_dataset(method, data, chosen_subjects, variables, all_subjects=False, discrete=None):
+    # Checking 'Apply to all subjects' imputes data in all subjects
+    if all_subjects:
+        chosen_subjects = subjects(data, data.columns[0])
+    # Last Observation Carried Forward
+    if method == 'locf':
+        return locf_impute(data, chosen_subjects, variables)
+    elif method == 'missforest':
+        return mf_impute(data, chosen_subjects, cols=variables, categorical_variables=discrete)
+    # This shouldn't happen
+    else:
+        raise ValueError('Unknown imputation method')

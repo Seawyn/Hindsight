@@ -47,7 +47,7 @@ app.layout = html.Div(children=[
                 ),
                 dbc.Col()
             ])
-        ], id='upload-screen'),
+        ], id='upload-screen', style={'height': '100vh'}),
         # Dashboard main page (after dataset has been imported)
         dbc.CardBody([
             dbc.Row([
@@ -82,28 +82,75 @@ app.layout = html.Div(children=[
                 dbc.Col(
                     dbc.Card(children=[
                         dbc.CardHeader(
-                            html.H5('Things and stuff', style={'color': '#FFFFFF'}),
+                            html.H5('Structure Learning', style={'color': '#FFFFFF'}),
                             style={'backgroundColor': '#333333'}
                         ),
                         dbc.CardBody(children=[
-                            'Testing new row'
+                            dbc.Tabs([
+                                dbc.Tab(label='Boltzmann Machine', children=[
+                                    html.Br(),
+                                    dbc.Row([
+                                        dbc.Col([
+                                            'Subjects:',
+                                            dcc.Dropdown(id='bm-subjects', multi=True)
+                                        ], width=8),
+                                        dbc.Col([
+                                            dcc.Checklist(
+                                                options=[{'label': 'Apply to all subjects', 'value': 'apply'}],
+                                                style={'marginTop': '10px'},
+                                                id='bm-all-subjects'
+                                            )
+                                        ], width=4)
+                                    ]),
+                                    html.Br(),
+                                    dbc.Row([
+                                        dbc.Col([
+                                            'Variables:',
+                                            dcc.Dropdown(id='bm-variables', multi=True)
+                                        ])
+                                    ]),
+                                    html.Br(),
+                                    dbc.Row([
+                                        dbc.Col([
+                                            'Number of Hidden Nodes:',
+                                            dcc.Input(id='bm-hidden', type='number', min=1, style={'width': '100%'})
+                                        ]),
+                                        dbc.Col([
+                                            'Number of Iterations:',
+                                            dcc.Input(id='bm-iter', type='number', min=1, placeholder=10, style={'width': '100%'})
+                                        ]),
+                                        dbc.Col([
+                                            'Learning Rate:',
+                                            dcc.Input(id='bm-learning-rate', type='number', min=0.0001, max=1, placeholder=0.1, style={'width': '100%'})
+                                        ])
+                                    ]),
+                                    html.Br(),
+                                    dbc.Row([
+                                        dbc.Col(),
+                                        dbc.Col(),
+                                        dbc.Col([
+                                            dbc.Button('Train BM', style={'width': '100%'})
+                                        ])
+                                    ])
+                                ])
+                            ])
                         ])
                     ])
                 ),
                 dbc.Col(
                     dbc.Card(children=[
                         dbc.CardHeader(
-                            html.H5('Things and stuff: the long awaited sequel', style={'color': '#FFFFFF'}),
+                            html.H5('Results', style={'color': '#FFFFFF'}),
                             style={'backgroundColor': '#333333'}
                         ),
                         dbc.CardBody(children=[
-                            'Now featuring chapters!'
+                            'Results will be displayed here'
                         ])
-                    ])
+                    ], style={'height': '100%'})
                 )
             ])
         ], id='main-screen', style={'display': 'none'}),
-    ], color='#ACF2D3', style={'height': '100vh'}),
+    ], color='#ACF2D3', style={'border': 'none'}),
 
     # Hidden div holds the original dataset
     html.Div(id='dataset', style={'display': 'none'}),
@@ -111,10 +158,12 @@ app.layout = html.Div(children=[
     # Hidden div holds the current instance of the dataset
     html.Div(id='current-data', style={'display': 'none'}),
 
-    # TODO: Data imputation
+    # Hidden div holds the (possibly imputated) dataset
+    html.Div(id='imputed-data', style={'display': 'none'}),
+
     # TODO: Restricted Boltzmann Machine / Dynamic Boltzmann Machine
     # TODO: Dynamic Bayesian Network
-])
+], style={'backgroundColor': '#ACF2D3', 'min-height': '100vh'})
 
 # Verifies whether or not the upload is a valid csv file and updates Confirm button status, selection text and current dataset
 @app.callback(
@@ -176,19 +225,67 @@ def update_raw_data(n_clicks, data):
                 #return content, current_df.to_json(), col_options, values, ind_options
     return no_update, no_update, no_update
 
-# Uploading dataset alters the current dataset instance
+# Uploading the dataset alters the current dataset instance
 @app.callback(
     dash.dependencies.Output('current-data', 'children'),
-    [dash.dependencies.Input('dataset', 'children')]
+    [dash.dependencies.Input('dataset', 'children')],
+    [dash.dependencies.Input('imputed-data', 'children')]
 )
 
-def update_current_data(data):
+def update_current_data(data, imp_data):
     ctx = dash.callback_context
     if ctx.triggered:
-        # df = pandas.read_json(data).sort_index()
-        return data
+        trigger = ctx.triggered[0]['prop_id'].split('.')[0]
+        if trigger == 'dataset':
+            return data
+        elif trigger == 'imputed-data':
+            return imp_data
     return no_update
 
+# Uploading the dataset or performing imputation methods updates imputed data
+# Alternatively, find and replace operations update imputed data
+# (Any changes made to imputed data alter current data)
+@app.callback(
+    dash.dependencies.Output('imputed-data', 'children'),
+    [dash.dependencies.Input('dataset', 'children')],
+    [dash.dependencies.Input('imputed-data', 'children')],
+    [dash.dependencies.Input('ld-imputation-subjects', 'value')],
+    [dash.dependencies.Input('ld-imputation-variables', 'value')],
+    [dash.dependencies.Input('imputation-method', 'value')],
+    [dash.dependencies.Input('missforest-discrete-variables', 'value')],
+    [dash.dependencies.Input('all-subjects', 'value')],
+    [dash.dependencies.Input('ld-imputation-confirm', 'n_clicks')],
+    [dash.dependencies.Input('find-replace-variable', 'value')],
+    [dash.dependencies.Input('variable-value-to-replace', 'value')],
+    [dash.dependencies.Input('variable-value-replacement', 'value')],
+    [dash.dependencies.Input('replace-confirm', 'n_clicks')]
+)
+
+def ld_imputation(orig_data, imp_data, subjects, variables, method, d_variables, all_subjects, n_clicks, replace_var, replace_val, replacement, confirm_replacement):
+    ctx = dash.callback_context
+    if ctx.triggered:
+        for trigger in ctx.triggered:
+            current_trigger = trigger['prop_id'].split('.')[0]
+            # Initial setup
+            if current_trigger == 'dataset':
+                return orig_data
+            # Impute data
+            elif current_trigger == 'ld-imputation-confirm':
+                df = pandas.read_json(imp_data).sort_index()
+                # all_subjects may be null if never interacted with (should be an empty array)
+                if all_subjects is None:
+                    all_subjects = []
+                apply_all = 'apply' in all_subjects
+                new_data = impute_ld_dataset(method, df, subjects, variables, all_subjects=apply_all, discrete=d_variables)
+                new_data = new_data.to_json()
+                return new_data
+            # Find and replace values
+            elif current_trigger == 'replace-confirm':
+                if not replace_var is None and not replace_val is None and not replacement is None:
+                    new_data = replace_in_dataset(imp_data, replace_var, replace_val, replacement)
+                    new_data = new_data.to_json()
+                    return new_data
+    return no_update
 
 # New column and/or subject dropdown selections alter the raw dataset table display
 @app.callback(
@@ -208,7 +305,7 @@ def update_dataset_table(data, cur_cols, cur_ind, n_clicks):
         for trigger in ctx.triggered:
             current_trigger = trigger['prop_id'].split('.')[0]
             # Only changes if dataset was changed or if options were changed
-            if current_trigger == 'data-table-options-close':
+            if current_trigger == 'data-table-options-close' or current_trigger == 'current-data':
                 df = pandas.read_json(data).sort_index()
                 # Display a subset of the columns to prevent heavy load
                 current_df = df[cur_cols]
@@ -218,6 +315,7 @@ def update_dataset_table(data, cur_cols, cur_ind, n_clicks):
                 degrees_missingness = column_missingness(current_df)
                 tooltip_header = get_column_info(current_df)
 
+                # Create data table with color coded columns and column info
                 content = [dash_table.DataTable(
                             columns=[{'name': i, 'id': i} for i in current_df.columns],
                             data=current_df.to_dict('records'),
@@ -267,6 +365,59 @@ def toggle_data_table_modal(n1, n2, is_open):
     else:
         return is_open
 
+# Uploading the dataset populates find and replace variable dropdown options
+@app.callback(
+    dash.dependencies.Output('find-replace-variable', 'options'),
+    [dash.dependencies.Input('dataset', 'children')]
+)
+
+def populate_find_replace_variable_options(data):
+    ctx = dash.callback_context
+    if ctx.triggered:
+        df = pandas.read_json(data).sort_index()
+        options = []
+        for col in df.columns:
+            options.append({'label': col, 'value': col})
+        return options
+    return no_update
+
+# Selecting a find and replace variable changes possible value selections
+@app.callback(
+    dash.dependencies.Output('variable-value-to-replace', 'options'),
+    dash.dependencies.Output('variable-value-to-replace', 'value'),
+    dash.dependencies.Output('variable-value-to-replace', 'disabled'),
+    [dash.dependencies.Input('dataset', 'children')],
+    [dash.dependencies.Input('find-replace-variable', 'value')]
+)
+
+def populate_replace_variable_value_options(data, value):
+    ctx = dash.callback_context
+    if ctx.triggered:
+        df = pandas.read_json(data).sort_index()
+        if not value is None:
+            vals = set(df[value].values)
+            vals = list({x for x in vals if x==x})
+            options = []
+            for val in vals:
+                options.append({'label': val, 'value': val})
+            return options, vals[0], False
+    return no_update, no_update, True
+
+# Having a selected variable, value and replacement enables replace button
+@app.callback(
+    dash.dependencies.Output('replace-confirm', 'disabled'),
+    [dash.dependencies.Input('find-replace-variable', 'value')],
+    [dash.dependencies.Input('variable-value-to-replace', 'value')],
+    [dash.dependencies.Input('variable-value-replacement', 'value')]
+)
+
+def update_replace_button_status(variable, value, replacement):
+    ctx = dash.callback_context
+    if ctx.triggered:
+        if not variable is None and not value is None and not replacement is None:
+            return False
+    return True
+
 # Imputation button opens imputation modal
 @app.callback(
     dash.dependencies.Output('ld-imputation-modal', 'is_open'),
@@ -281,6 +432,88 @@ def toggle_imputation_modal(n1, n2, n3, is_open):
         return not is_open
     else:
         return is_open
+
+# Populate subjects and variables dropdown imputation options
+@app.callback(
+    dash.dependencies.Output('ld-imputation-subjects', 'options'),
+    dash.dependencies.Output('ld-imputation-variables', 'options'),
+    [dash.dependencies.Input('current-data', 'children')]
+)
+
+def populate_imputation_options(data):
+    ctx = dash.callback_context
+    if ctx.triggered:
+        df = pandas.read_json(data).sort_index()
+        subjects_mv, columns_mv = check_missingness(df)
+        subjects_options = []
+        for subject in subjects_mv:
+            subjects_options.append({'label': subject, 'value': subject})
+        column_options = []
+        for column in columns_mv:
+            column_options.append({'label': column, 'value': column})
+        return subjects_options, column_options
+    return no_update, no_update
+
+# Apply to all subjects option disables Subjects dropout
+@app.callback(
+    dash.dependencies.Output('ld-imputation-subjects', 'disabled'),
+    [dash.dependencies.Input('all-subjects', 'value')]
+)
+
+def toggle_subjects_dropdown(values):
+    ctx = dash.callback_context
+    if ctx.triggered:
+        if 'apply' in values:
+            return True
+        else:
+            return False
+    return no_update
+
+# Selecting "MissForest" imputation method alters div with discrete variables options display
+@app.callback(
+    dash.dependencies.Output('discrete-variables-div', 'style'),
+    [dash.dependencies.Input('imputation-method', 'value')]
+)
+
+def toggle_discrete_variables_div(method):
+    ctx = dash.callback_context
+    if ctx.triggered:
+        style = {}
+        if method == 'missforest':
+            style['display'] = 'block'
+        else:
+            style['display'] = 'none'
+        return style
+    return no_update
+
+# Selecting new imputation variables changes discrete variables options
+
+@app.callback(
+    dash.dependencies.Output('missforest-discrete-variables', 'options'),
+    [dash.dependencies.Input('ld-imputation-variables', 'value')]
+)
+
+def change_discrete_variables_options(variables):
+    ctx = dash.callback_context
+    if ctx.triggered:
+        options = []
+        for variable in variables:
+            options.append({'label': variable, 'value': variable})
+        return options
+    return no_update
+
+@app.callback(
+    dash.dependencies.Output('bm-subjects', 'options'),
+    dash.dependencies.Output('bm-variables', 'options'),
+    [dash.dependencies.Input('dataset', 'children')]
+)
+
+def populate_learning_dataset_parameters(data):
+    ctx = dash.callback_context
+    if ctx.triggered:
+        variable_options, _, subject_options = setup_dataset(data, add_all=False)
+        return subject_options, variable_options
+    return no_update, no_update
 
 if __name__ == '__main__':
     app.run_server(debug=True)

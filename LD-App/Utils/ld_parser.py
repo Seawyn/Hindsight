@@ -1,5 +1,8 @@
+import copy
+import numpy as np
 import pandas
 import sys
+from sklearn.preprocessing import LabelEncoder
 
 # Handle version difference
 import sklearn.neighbors._base
@@ -37,16 +40,6 @@ def summary(data, subject=None):
 
         col_data[col] = col_str
 
-        '''
-        print(col)
-        print('Number of observations:', len(data[col]))
-        print('Number of missing values:', number_of_nan)
-        print('Percentage of missing values:', number_of_nan / len(data[col]))
-        print('Number of distinct observations:', number_of_distinct)
-        print('Percentage of distinct values:', number_of_distinct / len(data[col]))
-        print('-----------------')
-        '''
-
     return col_data
 
 # Returns a dictionary of missigness percentage for each column of the input
@@ -68,6 +61,35 @@ def drop_cols_with_high_missingness(data, subject_col, threshold=0.3):
             print("Dropped", col, " column")
     return data
 
+# Label encodes columns received as input and returns results along with a mapping dictionary and encoder
+# Only accepts a single column as input
+def label_encode(inp):
+    data = copy.deepcopy(inp)
+    # Ensure input is a single dataframe column (Pandas Series)
+    assert isinstance(data, pandas.Series)
+
+    # if input has missing values
+    has_missing = False
+    if data.isnull().any():
+        # Change missing values to string ('NaN')
+        data[pandas.isnull(data)] = 'NaN'
+        has_missing = True
+
+    # Create and fit Label Encoder
+    label = LabelEncoder()
+    label.fit(data)
+    encoded = pandas.Series(label.transform(data))
+
+    # Map with encoded values as input and original values as output
+    mapping = dict(zip(label.transform(label.classes_), label.classes_))
+
+    # Convert encoded 'NaN' values back to np.nan
+    if has_missing:
+        encoded = encoded.replace(label.transform(['NaN'])[0], np.nan)
+
+    return encoded, mapping, label
+
+
 # Imputation based on Last Observation Carried Forward (LOCF)
 def locf_impute(data, subject=None, cols=None):
     # If subject is null, perform for all subjects
@@ -85,16 +107,37 @@ def locf_impute(data, subject=None, cols=None):
     return data
 
 # Imputation of discrete variables based on MissForest
-def mf_impute(data, imp_vars=None, categorical_variables=None):
+# Automatically encodes string columns (must be included in categorical_variables)
+def mf_impute(inp, subject=None, cols=None, categorical_variables=None):
+    data = copy.deepcopy(inp)
     # Prepare input
-    inp = data
-    if not imp_vars is None:
-        inp = data[imp_vars]
+    # if cols is none, perform for all columns (except first column)
+    if cols is None:
+        cols = data.columns[1:]
+    # If subject is null, perform for all subjects
+    if subject is None:
+        inp = data[cols]
+    else:
+        # Create a dataframe with all selected subjects
+        inp = pandas.DataFrame()
+        for s in subject:
+            inp = inp.append(get_subject(data, s, data.columns[0]).loc[:, cols])
     if len(inp.columns) < 2:
         raise Exception("Multiple variables must be given as input")
 
+    # Encode string columns
+    # Note: only categorical variables are encoded
+    labels = {}
+    for col in categorical_variables:
+        if inp[col].dtype == np.dtype(object):
+            encoded, mapping, label = label_encode(inp[col])
+            # Convert string column to encoded result
+            inp[col] = encoded
+            labels[col] = label
+
     # Prepare MissForest Imputer
     imputer = MissForest()
+    cat_vars = None
     if not categorical_variables is None:
         cat_vars = []
         for categorical_variable in categorical_variables:
@@ -102,4 +145,11 @@ def mf_impute(data, imp_vars=None, categorical_variables=None):
 
     # Fit and Transform the input
     res = imputer.fit_transform(inp.values, cat_vars=cat_vars)
-    return res
+    res = pandas.DataFrame(res, index=inp.index, columns=inp.columns)
+
+    # Convert encoded columns back to strings
+    for col in labels.keys():
+        res[col] = labels[col].inverse_transform(res[col].astype(int))
+
+    data.loc[res.index, res.columns] = res
+    return data

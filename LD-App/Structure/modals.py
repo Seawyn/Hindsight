@@ -10,6 +10,29 @@ dataframe_modal = html.Div(children=[
             html.Br(),
             'Selected Subjects:',
             dcc.Dropdown(id='current-subject', options=[{'label': 'All', 'value': 'all'}], value='all', clearable=False),
+            html.Br(),
+            html.Hr(),
+            html.A('Find and replace', style={'fontWeight': 'bold'}),
+            html.Br(),
+            'Variable:',
+            dcc.Dropdown(id='find-replace-variable'),
+            html.Br(),
+            dbc.Row(children=[
+                dbc.Col(children=[
+                    'Value:',
+                    dcc.Dropdown(id='variable-value-to-replace')
+                ]),
+                dbc.Col(children=[
+                    'Replacement:',
+                    dbc.Input(id='variable-value-replacement', type='number')
+                ])
+            ]),
+            html.Br(),
+            dbc.Row(children=[
+                dbc.Col(),
+                dbc.Col(),
+                dbc.Col(dbc.Button('Replace', id='replace-confirm', disabled=True, style={'width': '100%'}))
+            ])
         ]),
         dbc.ModalFooter(
             dbc.Button('Confirm', id='data-table-options-close', className='ml-auto')
@@ -27,51 +50,36 @@ ld_imputation_modal = html.Div(children=[
                 'Subjects:',
                 dbc.Row(children=[
                     dbc.Col(children=[
-                        dcc.Dropdown(id='ld-imputation-subjects')
+                        dcc.Dropdown(id='ld-imputation-subjects', multi=True)
                     ], width=8),
                     dbc.Col(children=[
                         dcc.Checklist(
                             options=[{'label': 'Apply to all subjects', 'value': 'apply'}],
-                            style={'marginTop': '10px'}
+                            style={'marginTop': '10px'},
+                            id='all-subjects'
                         )
                     ], width=4),
-                ])
+                ]),
+                html.Br(),
+                'Variables:',
+                dcc.Dropdown(
+                    id='ld-imputation-variables',
+                    multi=True
+                ),
+                html.Br(),
+                'Method:',
+                dcc.Dropdown(
+                    id='imputation-method',
+                    options=[{'label': 'LOCF', 'value': 'locf'}, {'label': 'MissForest', 'value': 'missforest'}],
+                    value='locf',
+                    clearable=False
+                ),
+                html.Div(children=[
+                    html.Br(),
+                    'Discrete variables:',
+                    dcc.Dropdown(id='missforest-discrete-variables', multi=True),
+                ], id='discrete-variables-div', style={'display': 'none'})
             ]),
-            html.Br(),
-            dcc.Tabs(
-                id='ld-imputation-tabs',
-                value='simple',
-                children=[
-                    dcc.Tab(
-                        label='Simple methods',
-                        value='simple',
-                        children=[
-                            html.Br(),
-                            'Method:',
-                            dcc.Dropdown(
-                                id='bias-imputation',
-                                options=[{'label': 'LOCF', 'value': 'locf'}],
-                                value='locf',
-                                clearable=False
-                            ),
-                            html.Br(),
-                            'Variables:',
-                            dcc.Dropdown(
-                                id='simple-imputation-variables',
-                            )
-                        ]
-                    ),
-                    dcc.Tab(
-                        label='MissForest',
-                        value='missforest',
-                        children=[
-                            html.Br(),
-                            'Input variables:',
-                            dcc.Dropdown(id='moss-forest-variables'),
-                        ]
-                    )
-                ]
-            )
         ]),
         dbc.ModalFooter(children=[
             dbc.Button('Confirm', id='ld-imputation-confirm', className='ml-auto'),
