@@ -1,26 +1,74 @@
-import os
-import sys
+import base64
 import dash
 import dash_bootstrap_components as dbc
 import dash_core_components as dcc
 import dash_cytoscape as cyto
 import dash_html_components as html
 import json
+import io
 import plotly.express as px
 import plotly.graph_objs as go
 from Utils.tsu import *
 from Utils.mtsu import *
 from Utils.mdu import *
 from Utils.nnu import *
+from Utils.ciu import *
+from Utils.model_io import *
 
-# Checks if file exists and if is a valid .csv file
+# Layout settings for all plot legends
+fig_legend_layout = {
+    'orientation': 'h',
+    'yanchor': 'bottom',
+    'y': 1.02,
+    'xanchor': 'right',
+    'x': 1
+}
+
+# Layout settings for all plot margins
+fig_margin_layout = {
+    'l': 10,
+    'r': 10,
+    'b': 10,
+    't': 0
+}
+
+# Checks if file is a valid .csv file
 def check_file(filename):
     file = filename.split('/')[-1]
     if len(file.split('.')) != 2:
         return False
     (name, type) = file.split('.')
     is_csv = (type == 'csv') and (len(name) > 0)
-    return os.path.exists(filename) and is_csv
+    return is_csv
+
+# Decodes upload and returns a Pandas DataFrame
+def read_upload(contents, sep=','):
+    content_type, content_string = contents.split(',')
+    decoded = base64.b64decode(content_string)
+    df = pandas.read_csv(io.StringIO(decoded.decode('utf-8')), sep=sep)
+    return df
+
+# Returns a badge containing the p-value of the Augmented Dickey Fuller test
+# Badge is green if p-value is equal or below 0.05, red if above 0.05 and yellow if data has missing indices
+def get_adf_badge(data, mi):
+    if mi == 0:
+        p_value = adf_pvalue(data)
+        if p_value <= 0.05:
+            color = 'success'
+        else:
+            color = 'danger'
+        return dbc.Badge(round(p_value, 4), color=color, className='mr-1')
+    else:
+        return dbc.Badge('Unk', color='warning', className='mr-1')
+
+# Returns a badge containing the provided number of missing indices
+# Badge is green if value is 0, red otherwise
+def get_mi_badge(mi):
+    if mi == 0:
+        color = 'success'
+    else:
+        color = 'danger'
+    return dbc.Badge(mi, color=color, className='mr-1')
 
 # Update variable selection dropdown with variable names
 # Plots 5 first variables by default
@@ -32,6 +80,27 @@ def populate_var_select(df):
         options.append({'label': col, 'value': col})
     return options, cols[:5]
 
+# Returns a dropdown options vector containing variables with missing values
+def get_missing_vars(data):
+    # Obtain dataset from stored json data and sort by index
+    df = pd.read_json(data).sort_index()
+    # Get columns with missing values
+    imp_vars = []
+    cols = get_missing_columns(df)
+    for col in cols:
+        imp_vars.append({'label': col, 'value': col})
+    return imp_vars
+
+# Checks input data for missing values
+# Returns True if data is incomplete, and False otherwise
+def data_has_missingness(data, available_vars):
+    df = pd.read_json(data).sort_index()
+    for variable in available_vars:
+        if len(get_missing_indices(df[variable])) > 0:
+            return True
+    return False
+
+# Create an autocorrelation function / partial autocorrelation function plot
 def create_acf_plot(data, plot_name, conf_int=None, nobs=None):
     if plot_name == 'acf':
         title = 'Autocorrelation Function'
@@ -79,8 +148,6 @@ def create_acf_plot(data, plot_name, conf_int=None, nobs=None):
     ])
 
     fig.update_layout(
-        width=750,
-        height=350,
         margin=dict(
             l=50,
             r=50,
@@ -91,6 +158,8 @@ def create_acf_plot(data, plot_name, conf_int=None, nobs=None):
         title=title,
         yaxis_range=[-1.2, 1.2]
     )
+
+    fig.update_layout(template='ggplot2')
 
     return fig
 
@@ -113,9 +182,9 @@ def setup_seasonal_decomposition(df, var):
     if len(get_missing_columns(df)) == 0:
         # Plots Seasonal Decomposition
         res = get_seasonal_decomposition(df[var])
-        fig_trend = px.line(res.trend)
-        fig_seasonal = px.line(res.seasonal)
-        fig_residual = px.line(res.resid)
+        fig_trend = px.line(res.trend, template='ggplot2')
+        fig_seasonal = px.line(res.seasonal, template='ggplot2')
+        fig_residual = px.line(res.resid, template='ggplot2')
     else:
         # Returns empty plots
         fig_trend = get_empty_plot('There are missing values')
@@ -179,6 +248,9 @@ def create_forecasting_plot(df, var, split, predicted, forecast=None, conf_int=N
         fig.add_trace(forecast_plot)
         fig.add_trace(upper_conf_plot)
         fig.add_trace(lower_conf_plot)
+
+    fig.update_layout(legend=fig_legend_layout, margin=fig_margin_layout)
+    fig.update_layout(template='ggplot2')
 
     return fig
 
@@ -247,6 +319,9 @@ def get_empty_plot(message, width=None, height=None):
         fig.update_layout({
             'width': width
         })
+
+    fig.update_layout(template='ggplot2')
+
     return fig
 
 def create_causality_elements(matrix, variables):
@@ -267,8 +342,16 @@ def create_causality_elements(matrix, variables):
 
     return elements
 
+def create_imputation_results_plot(data, mi):
+    fig = px.line(data, template='ggplot2')
+    fig.update_layout(legend=fig_legend_layout, margin=fig_margin_layout)
+    # Highlight missing indices
+    for i in mi:
+        fig = fig.add_vrect(x0 = i - 1, x1 = i + 1, fillcolor='LightSalmon', opacity=0.5, layer='below', line_width=0)
+    return fig
+
 # Trains a SARIMAX model and outputs a dictionary with all data (in json format)
-def sarimax_process(df, params, split, var, forecast_window):
+def sarimax_process(df, params, split, var, forecast_window, export=False):
     model_fit, pred, error, residuals = predict_sarimax(df, params, split, var, status=False)
     pred_data = pd.DataFrame(pred)
     pred_data.columns = [var]
@@ -293,10 +376,14 @@ def sarimax_process(df, params, split, var, forecast_window):
     # Create dictionary and convert to json
     last_sarimax = get_training_dict(df.to_json(), split, var, pred_data, forecast_data, conf_int_data, error, residuals.tolist(), nobs)
 
-    return last_sarimax
+    results_string = None
+    if export:
+        results_string = save_to_string(model_fit)
+
+    return last_sarimax, results_string
 
 # Trains a VAR model and outputs a dictionary with all data (in json format)
-def var_process(df, p, split, vars, forecast_window):
+def var_process(df, p, split, vars, forecast_window, export=False):
     model_fit, pred, error, residuals = predict_var(df, p, split)
     pred_data = process_predicted(pred, vars).to_json()
 
@@ -316,12 +403,16 @@ def var_process(df, p, split, vars, forecast_window):
     # Create dictionary and convert to json
     last_var = get_training_dict(df.to_json(), split, vars, pred_data, forecast_data, conf_int_data, error, residuals.tolist(), nobs)
 
-    return last_var
+    results_string = None
+    if export:
+        results_string = save_to_string(model_fit)
+
+    return last_var, results_string
 
 # Trains a Neural Network model and outputs a dictionary with all data (in json format)
-def nn_process(df, model, window_size, split, available_vars, forecast_window, hyperparam_data, output_size=1, seed=None):
+def nn_process(df, model, window_size, split, available_vars, forecast_window, hyperparam_data, output_size=1, seed=None, t=5, export=False):
     conf_int = not forecast_window is None
-    res, seed, errors, residuals, history, pr_train, y_train, forecast_data, conf_int_data = neural_network_regression(model, df, window_size, split, hyperparam_data, number_predictions=output_size, conf_int=conf_int, forecast_window=forecast_window)
+    res, seed, errors, residuals, history, pr_train, y_train, forecast_data, conf_int_data, model_arch_json = neural_network_regression(model, df, window_size, split, hyperparam_data, number_predictions=output_size, conf_int=conf_int, forecast_window=forecast_window, export=export)
 
     # Convert any shape to (shape[0], 1, shape[n - 1])
     pr_train = pr_train.reshape(pr_train.shape[0], 1, pr_train.shape[-1])
@@ -340,7 +431,7 @@ def nn_process(df, model, window_size, split, available_vars, forecast_window, h
     last_nn = get_training_dict(df.to_json(), split, available_vars, pred_data, forecast_data, conf_int_data, errors, residuals.tolist(), nobs, seed=seed)
     nn_res = {'loss': history.history['loss'], 'val_loss': history.history['val_loss'], 'training': y_train, 'training_res': pr_train}
 
-    return last_nn, nn_res
+    return last_nn, nn_res, model_arch_json
 
 # Creates a dictionary with all training results and converts to json format
 def get_training_dict(df, split, var, pred_data, forecast_data, conf_int_data, error, residuals, nobs, seed=None):
@@ -361,7 +452,8 @@ def get_training_dict(df, split, var, pred_data, forecast_data, conf_int_data, e
 # For a given model, update results based on obtained residuals
 def update_model_results(model, var, performances, error, residuals, last_test, nobs):
     # Check if results should be reset (if test size changed)
-    if len(residuals) != last_test:
+    # Results may differ in size by a maximum of 2 values without being reset
+    if abs(len(residuals) - last_test) > 2:
         results = {}
         last_test = len(residuals)
     else:
@@ -432,10 +524,13 @@ def get_performance_bar_plot(perf_data):
         )
     )])
     fig.update_layout(
-        title='Model Performances',
         yaxis=dict(
             title='Mean Absolute Error (MAE)'
         ),
-        xaxis_tickangle=20
+        xaxis_tickangle=20,
+        margin=fig_margin_layout
     )
+
+    fig.update_layout(template='ggplot2')
+
     return fig

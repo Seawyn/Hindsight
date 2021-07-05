@@ -81,6 +81,9 @@ def nearest_mean_imputation(data, neighbourhood_size=2):
 # Creates train and test imputation sets for Multilayer Perceptron model
 def train_test_imputation_sets(data, ar_lag=1, order="forwards"):
     missing_data = copy.deepcopy(data)
+    # Never changed
+    # Needed as input for recurrent shift operations
+    orig = copy.deepcopy(data)
     # Input and Output with no Missing Values
     train_x = pd.DataFrame()
     train_y = pd.DataFrame()
@@ -94,7 +97,7 @@ def train_test_imputation_sets(data, ar_lag=1, order="forwards"):
     y.drop(y.tail(1).index, inplace=True)
     if ar_lag > 1:
         for i in range(1, ar_lag):
-            to_append = missing_data.shift(i).fillna(0)
+            to_append = orig.shift(i).fillna(0)
             for col in to_append.columns:
                 to_append = to_append.rename(columns = {col: col + "-" + str(i)})
             missing_data = missing_data.join(to_append)
@@ -117,17 +120,19 @@ def train_test_imputation_sets(data, ar_lag=1, order="forwards"):
 
 # Uses model to impute missing values in the data
 def mlp_imputation(data, model, test_x, both_x, ar_lag=1):
-# TODO: Change to use training/test sets
+    # TODO: Change to use training/test sets
     to_return = copy.deepcopy(data)
     for i in test_x.index:
-        val = model.predict(to_return.loc[i].values.reshape((1, 1, to_return.loc[i].values.shape[0])))
+        # val = model.predict(to_return.loc[i].values.reshape((1, 1, to_return.loc[i].values.shape[0])))
+        val = model.predict(test_x.loc[i].values.reshape(1, 1, ar_lag))
         to_return.loc[i + 1] = val
-  # Generates missing sets until there are none
-  # A little bit bruteforce...
+    # Generates missing sets until there are none
+    # A little bit bruteforce...
     while len(both_x) != 0 and len(test_x) != 0:
         _, _, test_x, _, both_x, _ = train_test_imputation_sets(to_return, ar_lag)
         for i in test_x.index:
-            val = model.predict(to_return.loc[i].values.reshape((1, 1, to_return.loc[i].values.shape[0])))
+            # val = model.predict(to_return.loc[i].values.reshape((1, 1, to_return.loc[i].values.shape[0])))
+            val = model.predict(text_x.loc[i].values.reshape(1, 1, ar_lag))
             to_return.loc[i + 1] = val
     return to_return
 

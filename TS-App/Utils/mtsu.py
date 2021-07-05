@@ -1,4 +1,3 @@
-import itertools
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas
@@ -6,7 +5,6 @@ from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
 from statsmodels.stats.diagnostic import acorr_ljungbox
 from statsmodels.stats.stattools import durbin_watson
 from statsmodels.tsa.api import VAR, VARMAX
-from statsmodels.tsa.stattools import grangercausalitytests
 from Utils.tsu import *
 
 # Creates and saves a plot of each variable along with
@@ -46,56 +44,6 @@ def reverse_difference(data_diff, vals):
     orig = pd.DataFrame(orig)
     orig.columns = [data_diff.name]
     return orig
-
-# Applies the Granger Causality test between two variables
-def granger_causality_test(data, maxlag, verbose):
-    test_results = grangercausalitytests(data, maxlag=maxlag, verbose=False)
-    p_values = []
-    for lag in range(1, maxlag + 1):
-        p_values.append(test_results[lag][0]['ssr_chi2test'][1])
-    return min(p_values)
-
-# Calculates and outputs a matrix consisting of a Granger Causality test
-# for each pair of variables, where values below 0.05 indicate that the
-# variable of the column can be used to predict the variable of the row
-def granger_causality_matrix(data, maxlag=10, plot=False):
-    cols = len(data.columns)
-    matrix = np.zeros([cols, cols])
-    for i, row in enumerate(data.columns):
-        for j, col in enumerate(data.columns):
-            matrix[i, j] = granger_causality_test(data[[row, col]], maxlag, False)
-    if plot:
-        plt.imshow(matrix)
-        plt.colorbar()
-        plt.show()
-    return matrix
-
-# Receives a causality matrix as input and outputs a matrix where
-# values below 0.05 are replaced by 1 and 0 otherwise
-def filter_causality_matrix(matrix, plot=False):
-    filtered_matrix = np.zeros(matrix.shape)
-    for i, j in itertools.product(range(matrix.shape[0]), range(matrix.shape[1])):
-        if matrix[i, j] < 0.05:
-            filtered_matrix[i, j] = 1
-    if plot:
-        plt.imshow(filtered_matrix, cmap='Greens')
-        plt.colorbar()
-        plt.show()
-    return filtered_matrix
-
-# Given a dataset and a variable, outputs a dataframe where each column
-# stores the Granger Causality test result for each variable
-# Rows are sorted by values and there are no values equal or above 0.05
-def granger_causality_by_variable(data, var, maxlag=10, maxval=0.05):
-    if maxval > 0.05:
-        raise ValueError('maxval above 0.05')
-    vals = pd.DataFrame([], index=[var])
-    for col in data.columns:
-        val = granger_causality_test(data[[var, col]], maxlag, False)
-        if val < maxval:
-            vals[col] = val
-    vals = vals.sort_values(by=var, axis=1)
-    return vals
 
 # Performs Ljung-Box test on the residuals of a given model
 # Values of lb_value lower than 0.05 may indicate the model does not

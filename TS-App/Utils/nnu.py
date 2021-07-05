@@ -8,70 +8,6 @@ from tensorflow.keras import layers, regularizers
 from Utils.tsu import calculate_mae, calculate_residuals
 import warnings
 
-'''
-# Receives a time series dataset and creates training, test and, optionally, validation sets
-# data: dataset, as numpy array (or possibly DataFrame)
-# order: number of previous timesteps to be included in the input, besides current timestep (0 or higher)
-# split: index that separates training and test sets
-# val_split: size of validation set, takes last n entrances (0 or higher)
-# step: offset between x and y values, used for Direct and DirRec strategies (1 or higher)
-def series_to_supervised(data, order, split, val_split=0, step=1):
-  df = pandas.DataFrame(data)
-  for col in df.columns:
-    df = df.rename(columns = {col: 'var' + str(col)})
-  df_shift = df.shift(-step).dropna()
-
-  if val_split == 0:
-    val_x_split = -len(df)
-    val_y_split = -len(df_shift)
-    warnings.warn("x_val and y_val are empty DataFrames.")
-  else:
-    val_x_split = val_split
-    val_y_split = val_split
-
-  # (split - step) is volatile (used to ensure test size is equal to other models)
-
-  y_train = df_shift[df_shift.columns][:split - step]
-  y_test = df_shift[df_shift.columns][split - step:-val_y_split]
-  y_val = df_shift[df_shift.columns][-val_y_split:]
-
-  shifts = {}
-
-  if order > 0:
-    for i in range(1, order + 1):
-      shifts['-' + str(i)] = df.shift(i)
-  for key in shifts.keys():
-    for col in shifts[key].columns:
-      df[str(col) + key] = shifts[key][col]
-
-  # Save last input for forecasting
-  last = df[-step:]
-  df = df.drop(df.index[-step:])
-  x_train = df[df.columns][:split - step]
-  x_test = df[df.columns][split - step:-val_x_split]
-  x_val = df[df.columns][-val_x_split:]
-
-  x_train = x_train.fillna(0)
-  x_test = x_test.fillna(0)
-
-  sets = {}
-  sets['x_train'], sets['x_test'] = x_train, x_test
-  sets['y_train'], sets['y_test'] = y_train, y_test
-  sets['x_val'], sets['y_val'] = x_val, y_val
-  sets['last'] = last
-
-  return sets
-
-# Receives a y vector and splits it into chunks with column size of s
-def split_y_data(y_vec, num_cols, s):
-  intervals = []
-  i = 0
-  while i < len(y_vec.columns):
-    intervals.append(y_vec[y_vec.columns[i: i + num_cols * s]])
-    i += num_cols * s
-  return intervals
-'''
-
 # Receives a time series dataset and creates training, test and, optionally, validation sets
 # data: dataset, as numpy array (or possibly DataFrame)
 # order: number of previous timesteps to be included in the input, besides current timestep (0 or higher)
@@ -272,22 +208,9 @@ def process_results_2(scaler, results_train, results_test, number_predictions, f
     results_test_denormalized.columns = forecast_vars
     return results_train_denormalized, results_test_denormalized
 
-'''
-# Reshapes and denormalizes prediction results
-def process_results(scaler, pr_test, forecast_vars, y_test):
-    pr_test_reshaped = pr_test.reshape(len(pr_test), len(forecast_vars))
-    predicted = pandas.DataFrame(scaler.inverse_transform(pr_test_reshaped))
-    predicted.columns = forecast_vars
-    y_test_reshaped = y_test.reshape(len(y_test), len(forecast_vars))
-    test = pandas.DataFrame(scaler.inverse_transform(y_test_reshaped))
-    test.columns = forecast_vars
-    return predicted, test
-'''
-
 # Forecasts interval of size foecast_window using given model and last observation
 # Uses Monte Carlo Dropout for confidence interval estimation
 def forecast_nn(model, forecast_window, inp, t, available_vars, number_predictions=1):
-    print(available_vars)
     predictions = []
     inp = np.reshape(inp.values, (1, inp.shape[0], inp.shape[1]))
     # Number of iterations until forecast size is equal or greater than forecast_window
@@ -295,7 +218,6 @@ def forecast_nn(model, forecast_window, inp, t, available_vars, number_predictio
         current_pred = []
         # Predict the same value t times (Monte Carlo Dropout)
         for j in range(t):
-            print(inp.shape)
             current_pred.append(model.predict(inp).flatten())
         predictions.append(current_pred)
         # Add new predicted value to input
@@ -328,7 +250,7 @@ def process_nn_predictions(scaler, predicted, number_predictions, available_vars
     return forecast_data, conf_int_data
 
 # Performs the entire neural network regression workflow: preprocessing, training, testing, result processing
-def neural_network_regression(model, data, order, split, hyperparam_data, number_predictions=1, seed=None, conf_int=False, forecast_window=None, t=5):
+def neural_network_regression(model, data, order, split, hyperparam_data, number_predictions=1, seed=None, conf_int=False, forecast_window=None, export=False):
     # TODO: Update parameters: validation sets, etc
 
     # Preprocess data
@@ -358,10 +280,9 @@ def neural_network_regression(model, data, order, split, hyperparam_data, number
         raise ValueError('Unknown Model')
 
     # Train model
-    model, pr_test, pr_train, history = train_model(model, sets['x_train'], sets['y_train'], sets['x_test'], sets['y_test'], seed=seed)
+    model, pr_test, pr_train, history = train_model(model, sets['x_train'], sets['y_train'], sets['x_test'], sets['y_test'], epochs=hyperparam_data['epochs'], batch_size=hyperparam_data['batch_size'], seed=seed)
 
     # Obtain prediction, error and residuals
-    #predicted, test = process_results(scaler, pr_test, forecast_vars, sets['y_test'])
     predicted_train, predicted = process_results_2(scaler, pr_train, pr_test, number_predictions, forecast_vars)
     test = orig_sets['y_test']
 
@@ -372,12 +293,17 @@ def neural_network_regression(model, data, order, split, hyperparam_data, number
 
     # If there is a forecast window and is above 0
     if (not forecast_window is None) and forecast_window > 0:
+        t = hyperparam_data['t']
         predictions = forecast_nn(model, forecast_window, sets['last'], t, forecast_vars, number_predictions)
         forecast_data, conf_int_data = process_nn_predictions(scaler, predictions, number_predictions, forecast_vars)
     else:
         forecast_data = None
         conf_int_data = None
 
+    model_arch_json = None
+    if export:
+        model_arch_json = model.to_json()
+
     keras.backend.clear_session()
 
-    return predicted, seed, errors, residuals, history, predicted_train.values, orig_sets['y_train'], forecast_data, conf_int_data
+    return predicted, seed, errors, residuals, history, predicted_train.values, orig_sets['y_train'], forecast_data, conf_int_data, model_arch_json
