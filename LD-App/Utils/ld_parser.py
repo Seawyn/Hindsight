@@ -2,6 +2,8 @@ import copy
 import numpy as np
 import pandas
 import sys
+from sklearn.experimental import enable_iterative_imputer
+from sklearn.impute import IterativeImputer
 from sklearn.preprocessing import LabelEncoder
 
 # Handle version difference
@@ -20,6 +22,14 @@ def get_subject(data, subject_id, subject_col):
 # Replaces values in a given column
 def replace_in_col(data, col, repl):
     return data.replace({col: repl})
+
+# Quantile discretization using Pandas's qcut method
+def quantile_discretize(data, qd_var, qd_size, qd_enc):
+    encode = None
+    if qd_enc == True:
+        encode = False
+    data[qd_var] = pandas.qcut(data[qd_var], qd_size, labels=encode)
+    return data
 
 # Presents a list of variables of the data, followed by general statistics
 def summary(data, subject=None):
@@ -150,6 +160,33 @@ def mf_impute(inp, subject=None, cols=None, categorical_variables=None):
     # Convert encoded columns back to strings
     for col in labels.keys():
         res[col] = labels[col].inverse_transform(res[col].astype(int))
+
+    data.loc[res.index, res.columns] = res
+    return data
+
+# Imputation of discrete variables using Scikit-Learn's Iterative Imputer (based in MICE)
+def iter_impute(data, subject=None, cols=None, rounding=3):
+    # Prepare input
+    # if cols is none, perform for all columns (except first column)
+    if cols is None:
+        cols = data.columns[1:]
+    # If subject is null, perform for all subjects
+    if subject is None:
+        inp = data[cols]
+    else:
+        # Create a dataframe with all selected subjects
+        inp = pandas.DataFrame()
+        for s in subject:
+            inp = inp.append(get_subject(data, s, data.columns[0]).loc[:, cols])
+    if len(inp.columns) < 2:
+        raise Exception("Multiple variables must be given as input")
+
+    # Create imputer
+    imputer = IterativeImputer()
+    imputer.fit(inp)
+
+    # Impute missing values and round to the third decimal point
+    res = pandas.DataFrame(np.round(imputer.transform(inp), decimals=rounding), index=inp.index, columns=inp.columns)
 
     data.loc[res.index, res.columns] = res
     return data

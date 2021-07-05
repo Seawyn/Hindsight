@@ -8,7 +8,7 @@ app = dash.Dash(external_stylesheets=[dbc.themes.BOOTSTRAP])
 
 app.layout = html.Div(children=[
     dbc.Card([
-        # Import Dataset (only upon startup)
+        # Import dataset (only upon startup)
         dbc.CardBody([
             # Adds space that does not change
             dbc.Row(style={'height': '15vh'}),
@@ -87,7 +87,7 @@ app.layout = html.Div(children=[
                         ),
                         dbc.CardBody(children=[
                             dbc.Tabs([
-                                dbc.Tab(label='Boltzmann Machine', children=[
+                                dbc.Tab(label='Restricted Boltzmann Machine', id='rbm-tab', children=[
                                     html.Br(),
                                     dbc.Row([
                                         dbc.Col([
@@ -95,10 +95,11 @@ app.layout = html.Div(children=[
                                             dcc.Dropdown(id='bm-subjects', multi=True)
                                         ], width=8),
                                         dbc.Col([
-                                            dcc.Checklist(
+                                            dbc.Checklist(
                                                 options=[{'label': 'Apply to all subjects', 'value': 'apply'}],
                                                 style={'marginTop': '10px'},
-                                                id='bm-all-subjects'
+                                                id='bm-all-subjects',
+                                                switch=True
                                             )
                                         ], width=4)
                                     ]),
@@ -117,11 +118,11 @@ app.layout = html.Div(children=[
                                         ]),
                                         dbc.Col([
                                             'Number of Iterations:',
-                                            dcc.Input(id='bm-iter', type='number', min=1, placeholder=10, style={'width': '100%'})
+                                            dcc.Input(id='bm-iter', type='number', min=1, value=10, style={'width': '100%'})
                                         ]),
                                         dbc.Col([
                                             'Learning Rate:',
-                                            dcc.Input(id='bm-learning-rate', type='number', min=0.0001, max=1, placeholder=0.1, style={'width': '100%'})
+                                            dcc.Input(id='bm-learning-rate', type='number', min=0.0001, max=1, value=0.1, style={'width': '100%'})
                                         ])
                                     ]),
                                     html.Br(),
@@ -129,9 +130,12 @@ app.layout = html.Div(children=[
                                         dbc.Col(),
                                         dbc.Col(),
                                         dbc.Col([
-                                            dbc.Button('Train BM', style={'width': '100%'})
+                                            dbc.Button('Train BM', id='train-bm', style={'width': '100%'})
                                         ])
                                     ])
+                                ]),
+                                dbc.Tab(label='Dynamic Boltzmann Machine', id='dybm-tab', children=[
+                                    'Do whatever'
                                 ])
                             ])
                         ])
@@ -145,7 +149,7 @@ app.layout = html.Div(children=[
                         ),
                         dbc.CardBody(children=[
                             'Results will be displayed here'
-                        ])
+                        ], id='results-body')
                     ], style={'height': '100%'})
                 )
             ])
@@ -161,8 +165,9 @@ app.layout = html.Div(children=[
     # Hidden div holds the (possibly imputated) dataset
     html.Div(id='imputed-data', style={'display': 'none'}),
 
-    # TODO: Restricted Boltzmann Machine / Dynamic Boltzmann Machine
-    # TODO: Dynamic Bayesian Network
+    # TODO: Dynamic Boltzmann Machine
+    # TODO: More imputation options
+
 ], style={'backgroundColor': '#ACF2D3', 'min-height': '100vh'})
 
 # Verifies whether or not the upload is a valid csv file and updates Confirm button status, selection text and current dataset
@@ -187,7 +192,7 @@ def update_upload(contents, file_input):
             return True, 'Upload is not a valid .csv file', None
     return True, no_update, no_update
 
-# Upload Confirm button closes upload Card and displays main page
+# Upload Confirm button closes upload card and displays main page
 @app.callback(
     dash.dependencies.Output('upload-screen', 'style'),
     dash.dependencies.Output('main-screen', 'style'),
@@ -244,6 +249,8 @@ def update_current_data(data, imp_data):
 
 # Uploading the dataset or performing imputation methods updates imputed data
 # Alternatively, find and replace operations update imputed data
+# Alternatively, perform quantile discretization on the given variable with the given number of quantiles
+
 # (Any changes made to imputed data alter current data)
 @app.callback(
     dash.dependencies.Output('imputed-data', 'children'),
@@ -258,10 +265,14 @@ def update_current_data(data, imp_data):
     [dash.dependencies.Input('find-replace-variable', 'value')],
     [dash.dependencies.Input('variable-value-to-replace', 'value')],
     [dash.dependencies.Input('variable-value-replacement', 'value')],
-    [dash.dependencies.Input('replace-confirm', 'n_clicks')]
+    [dash.dependencies.Input('replace-confirm', 'n_clicks')],
+    [dash.dependencies.Input('quantile-discretization-variable', 'value')],
+    [dash.dependencies.Input('quantile-discretization-size', 'value')],
+    [dash.dependencies.Input('quantile-discretization-encode', 'value')],
+    [dash.dependencies.Input('quantile-discretization', 'n_clicks')]
 )
 
-def ld_imputation(orig_data, imp_data, subjects, variables, method, d_variables, all_subjects, n_clicks, replace_var, replace_val, replacement, confirm_replacement):
+def ld_imputation(orig_data, imp_data, subjects, variables, method, d_variables, all_subjects, n_clicks, replace_var, replace_val, replacement, confirm_replacement, qd_var, qd_size, qd_enc, qd_n_clicks):
     ctx = dash.callback_context
     if ctx.triggered:
         for trigger in ctx.triggered:
@@ -285,6 +296,13 @@ def ld_imputation(orig_data, imp_data, subjects, variables, method, d_variables,
                     new_data = replace_in_dataset(imp_data, replace_var, replace_val, replacement)
                     new_data = new_data.to_json()
                     return new_data
+            # Perform quantile discretization
+            elif current_trigger == 'quantile-discretization':
+                df = pandas.read_json(imp_data).sort_index()
+                new_data = quantile_discretize_dataset_by_var(df, qd_var, qd_size, qd_enc)
+                print(new_data)
+                new_data = new_data.to_json()
+                return new_data
     return no_update
 
 # New column and/or subject dropdown selections alter the raw dataset table display
@@ -364,6 +382,41 @@ def toggle_data_table_modal(n1, n2, is_open):
         return not is_open
     else:
         return is_open
+
+# Uploading the dataset updates quantile variable dropdown options
+@app.callback(
+    dash.dependencies.Output('quantile-discretization-variable', 'options'),
+    [dash.dependencies.Input('dataset', 'children')]
+)
+
+def update_quantile_discretization_variables(data):
+    ctx = dash.callback_context
+    if ctx.triggered:
+        df = pandas.read_json(data).sort_index()
+        options = []
+        for variable in df.columns:
+            options.append({'label': variable, 'value': variable})
+        return options
+    return no_update
+
+# Discretize button is enabled once a variable and quantile size have been provided
+@app.callback(
+    dash.dependencies.Output('quantile-discretization', 'disabled'),
+    [dash.dependencies.Input('quantile-discretization-variable', 'value')],
+    [dash.dependencies.Input('quantile-discretization-size', 'value')]
+)
+
+def update_quantile_discretization_button_status(variable, size):
+    ctx = dash.callback_context
+    if ctx.triggered:
+        # Both variable and quantile size must be provided
+        if variable is None or size is None:
+            return True
+        # There must be at least 2 quantiles
+        elif size < 2:
+            return True
+        return False
+    return no_update
 
 # Uploading the dataset populates find and replace variable dropdown options
 @app.callback(
@@ -514,6 +567,65 @@ def populate_learning_dataset_parameters(data):
         variable_options, _, subject_options = setup_dataset(data, add_all=False)
         return subject_options, variable_options
     return no_update, no_update
+
+# Train BM button is enabled once all related inputs are valid
+@app.callback(
+    dash.dependencies.Output('train-bm', 'disabled'),
+    [dash.dependencies.Input('bm-subjects', 'value')],
+    [dash.dependencies.Input('bm-all-subjects', 'value')],
+    [dash.dependencies.Input('bm-variables', 'value')],
+    [dash.dependencies.Input('bm-hidden', 'value')],
+    [dash.dependencies.Input('bm-iter', 'value')],
+    [dash.dependencies.Input('bm-learning-rate', 'value')]
+)
+
+def check_train_bm_status(subjects, use_all, variables, n_hidden, iter, l_r):
+    # Either individual subjects must be specified or all subjects flag must be enabled
+    if (subjects is None or subjects == []) and (use_all is None or use_all == []):
+        return True
+    # At least two variables must be specified
+    if variables is None or len(variables) < 2:
+        return True
+    # Model must have at least one hidden variable
+    if n_hidden is None or n_hidden < 1:
+        return True
+    # Model must have at least 1 iteration
+    if iter is None or iter < 1:
+        return True
+    # Learning rate must be a value between 0 and 1
+    if l_r is None or l_r <= 0 or l_r > 1:
+        return True
+    return False
+
+# Train BM button trains a Boltzmann Machine with the given input parameters
+@app.callback(
+    dash.dependencies.Output('results-body', 'children'),
+    [dash.dependencies.Input('train-bm', 'n_clicks')],
+    [dash.dependencies.Input('current-data', 'children')],
+    [dash.dependencies.Input('bm-subjects', 'value')],
+    [dash.dependencies.Input('bm-all-subjects', 'value')],
+    [dash.dependencies.Input('bm-variables', 'value')],
+    [dash.dependencies.Input('bm-hidden', 'value')],
+    [dash.dependencies.Input('bm-iter', 'value')],
+    [dash.dependencies.Input('bm-learning-rate', 'value')]
+)
+
+def train_bm(n_clicks, data, chosen_subjects, use_all, variables, n_hidden, iter, l_r):
+    ctx = dash.callback_context
+    if ctx.triggered:
+        # Parse all triggers
+        for trigger in ctx.triggered:
+            current_trigger = trigger['prop_id'].split('.')[0]
+            if current_trigger == 'train-bm':
+                model, input_size = bm_workflow(data, chosen_subjects, use_all, variables, n_hidden, iter, l_r)
+                fig = px.imshow(model.components_, color_continuous_scale='RdBu_r')
+                # Add borders around each column (separates encoded inputs)
+                border_cursor = 0
+                for el in input_size[:-1]:
+                    border_cursor += el
+                    fig = fig.add_vline(x=border_cursor - 0.5, line_width=3, line_color='black')
+                return [dcc.Graph(figure=fig)]
+    return no_update
 
 if __name__ == '__main__':
     app.run_server(debug=True)

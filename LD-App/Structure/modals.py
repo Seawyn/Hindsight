@@ -5,11 +5,43 @@ dataframe_modal = html.Div(children=[
     dbc.Modal([
         dbc.ModalHeader('Data Table Options'),
         dbc.ModalBody([
+            # Data table visualization
             'Selected Columns:',
             dcc.Dropdown(id='current-columns', multi=True, clearable=False),
             html.Br(),
             'Selected Subjects:',
             dcc.Dropdown(id='current-subject', options=[{'label': 'All', 'value': 'all'}], value='all', clearable=False),
+            # Quantile Discretization
+            html.Br(),
+            html.Hr(),
+            html.A('Quantile Discretization', style={'fontWeight': 'bold'}),
+            html.Br(),
+            'Variable:',
+            dcc.Dropdown(id='quantile-discretization-variable'),
+            html.Br(),
+            dbc.Row([
+                dbc.Col([
+                    'Number of Quantiles:',
+                    dbc.Input(id='quantile-discretization-size', type='number')
+                ], width=6),
+                dbc.Col([
+                    html.Br(),
+                    dbc.Checklist(
+                        options=[{'label': 'Encode', 'value': 'encode'}],
+                        id='quantile-discretization-encode',
+                        switch=True
+                    )
+                ], width=6),
+            ]),
+            html.Br(),
+            dbc.Row([
+                dbc.Col(),
+                dbc.Col(),
+                dbc.Col([
+                    dbc.Button('Discretize', id='quantile-discretization', disabled=True, style={'width': '100%'})
+                ])
+            ]),
+            # Find and Replace
             html.Br(),
             html.Hr(),
             html.A('Find and replace', style={'fontWeight': 'bold'}),

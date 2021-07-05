@@ -43,6 +43,10 @@ def process(data):
     except ValueError:
         raise ValueError('Input has missing values')
     else:
+        # Obtain size of input for each encoded column
+        input_sizes = []
+        for key in encoded.keys():
+            input_sizes.append(encoded[key].shape[-1])
         processed = None
         # Create all rows
         for i in range(data.shape[0]):
@@ -56,4 +60,4 @@ def process(data):
             else:
                 # Append new row to current output
                 processed = np.append(processed, row, axis=0)
-        return processed
+        return processed, input_sizes

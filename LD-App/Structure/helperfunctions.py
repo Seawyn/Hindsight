@@ -4,8 +4,10 @@ import dash_core_components as dcc
 import dash_cytoscape as cyto
 import dash_html_components as html
 import io
-from Utils.ld_parser import *
+import plotly.express as px
 import pandas
+from Utils.bmu import *
+from Utils.ld_parser import *
 
 # Checks if uploaded file is a valid .csv file
 def valid_upload(filename):
@@ -103,3 +105,30 @@ def impute_ld_dataset(method, data, chosen_subjects, variables, all_subjects=Fal
     # This shouldn't happen
     else:
         raise ValueError('Unknown imputation method')
+
+# Quantile discretization
+def quantile_discretize_dataset_by_var(data, qd_var, qd_size, qd_enc):
+    encode = False
+    if not qd_enc is None and qd_enc == ['encode']:
+        encode = True
+    new_data = quantile_discretize(data, qd_var, qd_size, encode)
+    if not encode:
+        # Change intervals to strings
+        new_data[qd_var] = new_data[qd_var].astype('string')
+    return new_data
+
+# Receives data as well as other parameters and fits a Restricted Boltzmann Machine
+# Returns trained model and number of input nodes for each variable
+def bm_workflow(data, chosen_subjects, use_all, cols, n_hidden, iter, l_r):
+    df = pandas.read_json(data).sort_index()
+    # If apply to all subjects was selected
+    if use_all == ['apply']:
+        chosen_subjects = subjects(df, df.columns[0])
+    # Create a dataframe with all selected subjects
+    inp = pandas.DataFrame()
+    for s in chosen_subjects:
+        inp = inp.append(get_subject(df, s, df.columns[0]).loc[:, cols])
+
+    inp, input_size = process(inp)
+    model = train_rbm(inp, n_hidden, iter, l_r)
+    return model, input_size
