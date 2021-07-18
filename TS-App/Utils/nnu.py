@@ -112,7 +112,10 @@ def preprocess(data, order, split, output_window=1, val_split=0):
     return scaler, processed, original_sets
 
 # Creates and compiles a Bidirectional LSTM neural network
-def create_bilstm_model(x_train, num_nodes=(20, 20), activations=('relu', 'relu'), dropout=0.2, output_size=1, loss='mae', conf_int=False):
+def create_bilstm_model(x_train, num_nodes=(20, 20), activations=('relu', 'relu'), dropout=0.2, output_size=1, loss='mae', conf_int=False, seed=0):
+    np.random.seed(seed)
+    tf.random.set_seed(seed)
+
     inputs = layers.Input(shape=(x_train.shape[1], x_train.shape[2]))
 
     # Return sequences will be True if there is no second layer
@@ -133,7 +136,10 @@ def create_bilstm_model(x_train, num_nodes=(20, 20), activations=('relu', 'relu'
     return lstm_model
 
 # Creates and compiles a CNN neural network
-def create_cnn_model(x_train, num_filters=(32, 16), kernel_sizes=(4, 2), activations=('relu', 'relu'), dropout=0.2, output_size=1, loss='mae', conf_int=False):
+def create_cnn_model(x_train, num_filters=(32, 16), kernel_sizes=(4, 2), activations=('relu', 'relu'), dropout=0.2, output_size=1, loss='mae', conf_int=False, seed=0):
+    np.random.seed(seed)
+    tf.random.set_seed(seed)
+
     inputs = layers.Input(shape=(x_train.shape[1], x_train.shape[2]))
 
     step = layers.Conv1D(filters=num_filters[0], kernel_size=kernel_sizes[0], activation=activations[1], padding='same')(inputs)
@@ -156,9 +162,8 @@ def create_cnn_model(x_train, num_filters=(32, 16), kernel_sizes=(4, 2), activat
     return cnn_model
 
 # Trains received model and outputs its test set prediction and error
-def train_model(model, x_train, y_train, x_test, y_test, epochs=50, batch_size=10, seed=0):
+def train_model(model, x_train, y_train, x_test, y_test, epochs=50, batch_size=10):
     # TODO: Change parameters to dictionary of sets
-    tf.random.set_seed(seed)
     history = model.fit(x_train, y_train, epochs=epochs, batch_size=batch_size, validation_data=(x_test, y_test), shuffle=False)
     pr_test = model.predict(x_test)
     pr_train = model.predict(x_train)
@@ -251,8 +256,6 @@ def process_nn_predictions(scaler, predicted, number_predictions, available_vars
 
 # Performs the entire neural network regression workflow: preprocessing, training, testing, result processing
 def neural_network_regression(model, data, order, split, hyperparam_data, number_predictions=1, seed=None, conf_int=False, forecast_window=None, export=False):
-    # TODO: Update parameters: validation sets, etc
-
     # Preprocess data
     val_split = 0
     forecast_vars = data.columns
@@ -269,18 +272,18 @@ def neural_network_regression(model, data, order, split, hyperparam_data, number
     if model == 'Bi-LSTM':
         num_nodes = (hyperparam_data['lstm-first-layer-nodes'], hyperparam_data['lstm-second-layer-nodes'])
         activations = (hyperparam_data['lstm-first-layer-activation'], hyperparam_data['lstm-second-layer-activation'])
-        model = create_bilstm_model(sets['x_train'], num_nodes=num_nodes, activations=activations, output_size=output_size, conf_int=conf_int)
+        model = create_bilstm_model(sets['x_train'], num_nodes=num_nodes, activations=activations, output_size=output_size, conf_int=conf_int, seed=seed)
     elif model == 'CNN':
         num_filters = (hyperparam_data['cnn-first-layer-filters'], hyperparam_data['cnn-second-layer-filters'])
         kernel_sizes = (hyperparam_data['cnn-first-layer-kernel'], hyperparam_data['cnn-second-layer-kernel'])
         activations = (hyperparam_data['cnn-first-layer-activation'], hyperparam_data['cnn-second-layer-activation'])
-        model = create_cnn_model(sets['x_train'], num_filters=num_filters, kernel_sizes=kernel_sizes, activations=activations, output_size=output_size, conf_int=conf_int)
+        model = create_cnn_model(sets['x_train'], num_filters=num_filters, kernel_sizes=kernel_sizes, activations=activations, output_size=output_size, conf_int=conf_int, seed=seed)
     else:
         # This shouldn't happen
         raise ValueError('Unknown Model')
 
     # Train model
-    model, pr_test, pr_train, history = train_model(model, sets['x_train'], sets['y_train'], sets['x_test'], sets['y_test'], epochs=hyperparam_data['epochs'], batch_size=hyperparam_data['batch_size'], seed=seed)
+    model, pr_test, pr_train, history = train_model(model, sets['x_train'], sets['y_train'], sets['x_test'], sets['y_test'], epochs=hyperparam_data['epochs'], batch_size=hyperparam_data['batch_size'])
 
     # Obtain prediction, error and residuals
     predicted_train, predicted = process_results_2(scaler, pr_train, pr_test, number_predictions, forecast_vars)

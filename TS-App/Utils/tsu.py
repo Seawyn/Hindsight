@@ -203,7 +203,8 @@ def predict_sarimax(ts, params, split, var, status=True):
 	tr_ts, te_ts = split_ts(ts, split)
 	predictions = []
 	# For all indexes in the testing set...
-	for i in np.arange(te_ts.index[0], te_ts.index[-1] + 1):
+	#for i in np.arange(te_ts.index[0], te_ts.index[-1] + 1):
+	for i in te_ts.index:
 		model_fit = fit_sarimax(tr_ts, params, summary=False)
 		output = model_fit.forecast()
 		predictions.append(output.values[0])

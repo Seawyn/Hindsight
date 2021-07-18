@@ -44,6 +44,11 @@ app.layout = html.Div(children=[
                             ),
                             html.Div('No dataset has been selected', id='current-filename-ts'),
                             html.Br(),
+                            html.Div([
+                                'Suggested separator:',
+                                dbc.Badge('None', id='suggested-separator', className='mr-1', style={'marginLeft': '10px'})
+                            ]),
+                            html.Br(),
                             dbc.Row([
                                 dbc.Col('Separator:', width=3),
                                 dbc.Col(
@@ -59,7 +64,15 @@ app.layout = html.Div(children=[
                                         labelStyle={'margin-right': '20px'}
                                     ), width=8
                                 )
-                            ], justify='between')
+                            ], justify='between'),
+                            dbc.Checklist(id='use-custom-index',
+                                options=[{'label': 'Use custom index', 'value': 'custom'}],
+                                switch=True
+                            ),
+                            dbc.Row([
+                                dbc.Col('Index column(s):', align='center', width=3),
+                                dbc.Col(dcc.Dropdown(id='index-columns', multi=True)),
+                            ])
                         ]),
                         dbc.CardFooter(dbc.Button('Confirm', id='upload-ts-confirm', disabled=True,
                         style={'backgroundColor': '#58B088', 'border': 'none'}))
@@ -271,8 +284,8 @@ app.layout = html.Div(children=[
                                                 ]),
                                                 dbc.Col([
                                                     html.Div([
-                                                        'Seed:',
-                                                        dcc.Input(id='seed', type='number', min=0, max=(2 ** 16), placeholder='Random Seed', disabled=True, style={'width': '100%'}),
+                                                        'Seed (Output):',
+                                                        dcc.Input(id='seed', type='number', min=0, max=(2 ** 16), placeholder='Random Seed', style={'width': '100%'}),
                                                     ])
                                                 ])
                                             ]),
@@ -434,6 +447,7 @@ app.layout = html.Div(children=[
     # TODO: Causality networks:
     #       - Focus on a single variable (PCMCI)
     # TODO: Loading status for training/forecasting models
+    # TODO: App Layout in separate file
 
 ], style={'backgroundColor': '#ACF2D3', 'min-height': '100vh'})
 
@@ -455,26 +469,65 @@ def update_upload_ts_status(contents, file_input):
             return False, file_input + ' has been selected'
         # Upload is not a valid .csv file
         else:
-            print('Please upload a valid .csv file')
             return True, 'Upload is not a valid .csv file'
     return True, no_update
+
+# Use custom index option enables index column(s) dropdown
+@app.callback(
+    dash.dependencies.Output('index-columns', 'disabled'),
+    [dash.dependencies.Input('use-custom-index', 'value')]
+)
+
+def check_custom_index_status(value):
+    return value is None or value == []
+
+# Automatically detect and suggest upload separator
+@app.callback(
+    dash.dependencies.Output('data-sep', 'value'),
+    dash.dependencies.Output('suggested-separator', 'children'),
+    dash.dependencies.Output('index-columns', 'options'),
+    [dash.dependencies.Input('upload-ts', 'contents')],
+    [dash.dependencies.Input('upload-ts', 'filename')]
+)
+
+def check_delimiter_and_columns(contents, file_input):
+    ctx = dash.callback_context
+    if ctx.triggered:
+        # Input must be a csv file
+        valid_csv = check_file(file_input)
+        if valid_csv:
+            delimiter = find_delimiter(contents)
+            # If the detected delimiter is one of the separator options
+            if delimiter in ['\t', ',', ';']:
+                badge_content = delimiter * (delimiter != '\t') + '\\t' * (delimiter == '\t')
+                columns = get_columns(contents, delimiter)
+                options = []
+                for col in columns:
+                    options.append({'label': col, 'value': col})
+                return delimiter, badge_content, options
+    return no_update, no_update, no_update
 
 # Upload Confirm Button updates stored dataset
 @app.callback(
     dash.dependencies.Output('dataset', 'children'),
     [dash.dependencies.Input('upload-ts', 'contents')],
     [dash.dependencies.Input('data-sep', 'value')],
-    [dash.dependencies.Input('upload-ts-confirm', 'n_clicks')]
+    [dash.dependencies.Input('upload-ts-confirm', 'n_clicks')],
+    [dash.dependencies.Input('use-custom-index', 'value')],
+    [dash.dependencies.Input('index-columns', 'value')]
 )
 
-def update_dataset(contents, sep, n_clicks):
+def update_dataset(contents, sep, n_clicks, use_custom, index_cols):
     ctx = dash.callback_context
     if ctx.triggered:
         for trigger in ctx.triggered:
             current_trigger = trigger['prop_id'].split('.')[0]
             # If Upload Confirm Button was pressed
             if current_trigger == 'upload-ts-confirm':
-                df = read_upload(contents, sep)
+                index = None
+                if not (use_custom is None or use_custom == []) and not (index_cols is None or index_cols == []):
+                    index = index_cols
+                df = read_upload(contents, sep, index_cols=index)
                 return df.to_json()
     return no_update
 

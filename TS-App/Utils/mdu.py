@@ -8,7 +8,6 @@ import tensorflow
 from tensorflow import keras
 from tensorflow.keras import layers, activations
 
-# TODO: Plot time series with missing data areas highlighted
 # TODO: Update imputation methods
 # TODO: Document methods
 

@@ -41,12 +41,36 @@ def check_file(filename):
     is_csv = (type == 'csv') and (len(name) > 0)
     return is_csv
 
-# Decodes upload and returns a Pandas DataFrame
-def read_upload(contents, sep=','):
+# Automatically find delimiter of the input
+def find_delimiter(contents):
     content_type, content_string = contents.split(',')
     decoded = base64.b64decode(content_string)
-    df = pandas.read_csv(io.StringIO(decoded.decode('utf-8')), sep=sep)
-    return df
+    # Credit
+    # https://stackoverflow.com/questions/45732459/retrieve-delimiter-infered-by-read-csv-in-pandas/45732580
+    reader = pandas.read_csv(io.StringIO(decoded.decode('utf-8')), sep=None, iterator=True)
+    sep = reader._engine.data.dialect.delimiter
+    return sep
+
+def get_columns(contents, sep):
+    df = read_upload(contents, sep)
+    return df.columns
+
+# Decodes upload and returns a Pandas DataFrame
+def read_upload(contents, sep=',', index_cols=None):
+    content_type, content_string = contents.split(',')
+    decoded = base64.b64decode(content_string)
+    data = pandas.read_csv(io.StringIO(decoded.decode('utf-8')), sep=sep)
+
+    if not index_cols is None:
+        columns = list(data.columns)
+        indexes = []
+        for col in index_cols:
+            columns.remove(col)
+            indexes.append(data[col].values)
+        df = pandas.DataFrame(data[columns].values, columns=columns, index=indexes)
+        return df
+
+    return data
 
 # Returns a badge containing the p-value of the Augmented Dickey Fuller test
 # Badge is green if p-value is equal or below 0.05, red if above 0.05 and yellow if data has missing indices
@@ -412,7 +436,7 @@ def var_process(df, p, split, vars, forecast_window, export=False):
 # Trains a Neural Network model and outputs a dictionary with all data (in json format)
 def nn_process(df, model, window_size, split, available_vars, forecast_window, hyperparam_data, output_size=1, seed=None, t=5, export=False):
     conf_int = not forecast_window is None
-    res, seed, errors, residuals, history, pr_train, y_train, forecast_data, conf_int_data, model_arch_json = neural_network_regression(model, df, window_size, split, hyperparam_data, number_predictions=output_size, conf_int=conf_int, forecast_window=forecast_window, export=export)
+    res, seed, errors, residuals, history, pr_train, y_train, forecast_data, conf_int_data, model_arch_json = neural_network_regression(model, df, window_size, split, hyperparam_data, number_predictions=output_size, conf_int=conf_int, forecast_window=forecast_window, export=export, seed=seed)
 
     # Convert any shape to (shape[0], 1, shape[n - 1])
     pr_train = pr_train.reshape(pr_train.shape[0], 1, pr_train.shape[-1])
