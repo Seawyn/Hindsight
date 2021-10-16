@@ -330,14 +330,23 @@ app.layout = html.Div(children=[
                                 ])
                             ]),
                             html.Br(),
-                            dbc.Checklist(
-                                options=[
-                                    {'label': 'Export model', 'value': 'export'}
-                                ],
-                                value=[],
-                                id='export-model',
-                                switch=True
-                            ),
+                            dbc.Row([
+                                dbc.Col([
+                                    'Output variables (Optional):',
+                                    dcc.Dropdown('output-variables', multi=True)
+                                ], width=8),
+                                dbc.Col([
+                                    html.Br(),
+                                    dbc.Checklist(
+                                        options=[
+                                            {'label': 'Export model', 'value': 'export'}
+                                        ],
+                                        value=[],
+                                        id='export-model',
+                                        switch=True
+                                    ),
+                                ])
+                            ]),
                             # Download SARIMAX results as txt
                             dcc.Download(id='download-sarimax-model'),
                             # Download VAR results as txt
@@ -556,6 +565,7 @@ def change_screen_ts(n_clicks):
     dash.dependencies.Output('forecasting-variables', 'value'),
     dash.dependencies.Output('causality-variable', 'options'),
     dash.dependencies.Output('causality-variable', 'value'),
+    dash.dependencies.Output('output-variables', 'options'),
     [dash.dependencies.Input('dataset', 'children')]
 )
 
@@ -569,9 +579,9 @@ def populate_variable_select(data):
         values = df.columns[:5]
 
         chosen_variable_options = [{'label': 'Dataset', 'value': 'data_all'}] + options
-        return options, values, chosen_variable_options, 'data_all', options, values, chosen_variable_options, 'data_all'
+        return options, values, chosen_variable_options, 'data_all', options, values, chosen_variable_options, 'data_all', options
 
-    return no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
+    return no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
 
 # Button press updates text and plot
 # Alternatively, variable selection updates plot
@@ -1448,6 +1458,7 @@ def train_var(p, data, available_vars, split, forecast_window, n_clicks, export_
     dash.dependencies.Output('training-set-res', 'children'),
     dash.dependencies.Output('training-set-var', 'options'),
     dash.dependencies.Output('training-set-var', 'value'),
+    dash.dependencies.Output('grad-info', 'figure'),
     dash.dependencies.Output('download-nn-architecture', 'data'),
     # Neural Network parameters
     [dash.dependencies.Input('neural-network-model', 'value')],
@@ -1462,9 +1473,10 @@ def train_var(p, data, available_vars, split, forecast_window, n_clicks, export_
     [dash.dependencies.Input('run-nn', 'n_clicks')],
     [dash.dependencies.Input('nn-hyperparameters', 'children')],
     [dash.dependencies.Input('export-model', 'value')],
+    [dash.dependencies.Input('output-variables', 'value')],
 )
 
-def train_nn(model, window_size, output_size, seed, data, available_vars, split, forecast_window, n_clicks, hyperparam, export_status):
+def train_nn(model, window_size, output_size, seed, data, available_vars, split, forecast_window, n_clicks, hyperparam, export_status, output_vars):
     ctx = dash.callback_context
     # Prevent update upon startup
     if ctx.triggered:
@@ -1481,18 +1493,35 @@ def train_nn(model, window_size, output_size, seed, data, available_vars, split,
                 # If Export model option has been selected
                 export = (export_status == ['export'])
 
-                last_nn, nn_res, model_arch_json = nn_process(df, model, window_size, split, available_vars, forecast_window, hyperparam_data, output_size=output_size, seed=seed, export=export)
+                # Sort output vars (if any) to have similar order to available_vars
+                if (not output_vars is None) and output_vars != []:
+                    temp_vars = []
+                    for col in available_vars:
+                        if col in output_vars:
+                            temp_vars.append(col)
+                    output_vars = temp_vars
+                else:
+                    output_vars = None
+
+                last_nn, nn_res, model_arch_json, grad_info = nn_process(df, model, window_size, split, available_vars, forecast_window, hyperparam_data, output_size=output_size, seed=seed, export=export, output_vars=output_vars)
 
                 loss_data = pandas.DataFrame([nn_res['loss'], nn_res['val_loss']]).transpose()
                 loss_data.columns = ['loss', 'val_loss']
 
                 # Change to display selected variable
                 training_set_res = pandas.DataFrame()
-                for i in range(len(available_vars)):
-                    training_set_res[available_vars[i]] = np.array(nn_res['training'])[:, i]
-                    # Due to multi-output, results may differ in length
-                    # Offset is represented by null values (ignored by plots)
-                    training_set_res = training_set_res.join(pandas.DataFrame(np.array(nn_res['training_res'][:, :, i]), columns=[available_vars[i] + '_pred']))
+                if (not output_vars is None) and output_vars != []:
+                    for i in range(len(output_vars)):
+                        training_set_res[output_vars[i]] = np.array(nn_res['training'])[:, i]
+                        # Due to multi-output, results may differ in length
+                        # Offset is represented by null values (ignored by plots)
+                        training_set_res = training_set_res.join(pandas.DataFrame(np.array(nn_res['training_res'][:, :, i]), columns=[output_vars[i] + '_pred']))
+                else:
+                    for i in range(len(available_vars)):
+                        training_set_res[available_vars[i]] = np.array(nn_res['training'])[:, i]
+                        # Due to multi-output, results may differ in length
+                        # Offset is represented by null values (ignored by plots)
+                        training_set_res = training_set_res.join(pandas.DataFrame(np.array(nn_res['training_res'][:, :, i]), columns=[available_vars[i] + '_pred']))
 
                 loss_plot = px.line(loss_data, template='ggplot2')
                 loss_plot.update_layout(legend=fig_legend_layout, margin=fig_margin_layout)
@@ -1500,14 +1529,29 @@ def train_nn(model, window_size, output_size, seed, data, available_vars, split,
                 training_set_res = training_set_res.to_json()
 
                 var_options = []
-                for variable in available_vars:
-                    var_options.append({'label': variable, 'value': variable})
+                if (not output_vars is None) and output_vars != []:
+                    for variable in output_vars:
+                        var_options.append({'label': variable, 'value': variable})
+                    selected_var = output_vars[0]
+                else:
+                    for variable in available_vars:
+                        var_options.append({'label': variable, 'value': variable})
+                    selected_var = available_vars[0]
+
+                grad_plot = px.bar(x = list(grad_info.keys()), y = [grad_info[key] for key in list(grad_info.keys())], template='ggplot2')
+                grad_plot.update_layout(legend=fig_legend_layout, margin=fig_margin_layout,
+                xaxis=dict(
+                    title=''
+                ),
+                yaxis=dict(
+                    title='Gradient'
+                ),)
 
                 download_content = no_update
                 if export and not model_arch_json is None:
                     download_content = dict(content=model_arch_json, filename='results_nn.json')
 
-                return last_nn, False, loss_plot, training_set_res, var_options, available_vars[0], download_content
+                return last_nn, False, loss_plot, training_set_res, var_options, selected_var, grad_plot, download_content
 
     # If button has not been pressed
     raise dash.exceptions.PreventUpdate()

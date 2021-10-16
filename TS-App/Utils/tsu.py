@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import boxcox, yeojohnson
 import statsmodels.tsa.api as smt
-from statsmodels.tsa.arima_model import ARIMA
+from statsmodels.tsa.arima.model import ARIMA
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 from statsmodels.tsa.stattools import adfuller, acf, pacf
 from statsmodels.tsa.seasonal import seasonal_decompose
@@ -151,7 +151,7 @@ def calculate_residuals(obs, pred):
 # Creates and trains an ARIMA model with given time series and parameters
 def fit_arima(ts, p, d, q, summary=True):
 	model = ARIMA(ts, order=(p, d, q))
-	model_fit = model.fit(disp=0)
+	model_fit = model.fit()
 	if summary:
 		print(model_fit.summary())
 	return model_fit
@@ -165,7 +165,7 @@ def plot_predicted(ts, pr, split, fill=None):
 	plt.show()
 
 # Creates an ARIMA model used for predicting a given time series
-def predict_arima(ts, p, d, q, split):
+def predict_arima(ts, p, d, q, split, display_res=False):
 	tr_ts, te_ts = split_ts(ts, split)
 	predictions = []
 	for i in range(len(te_ts)):
@@ -173,9 +173,10 @@ def predict_arima(ts, p, d, q, split):
 		output = model_fit.forecast()
 		predictions.append(output[0])
 		tr_ts.append(te_ts[i])
-		print("Predicted:", output[0][0], ", Expected:", te_ts[i])
+		print("Predicted:", output[0], ", Expected:", te_ts[i])
 	print('MAE:', calculate_mae(np.array(te_ts), np.array(predictions)))
-	plot_predicted(ts, predictions, split)
+	if display_res:
+		plot_predicted(ts, predictions, split)
 	return model_fit
 
 # Receives a trained ARIMA model and plots its forecast up to a given time value

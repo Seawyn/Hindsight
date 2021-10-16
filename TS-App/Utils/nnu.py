@@ -87,7 +87,20 @@ def series_to_supervised_multi_output(data, order, split, output_window, val_spl
 
 # Preprocesses the dataset: normalization, train-test split, reshaping
 # Returns scaler (for later denormalization) and processed data
-def preprocess(data, order, split, output_window=1, val_split=0):
+def preprocess(data, order, split, output_window=1, val_split=0, output_vars=None):
+    # Get index of output variables, if specified
+    if not output_vars is None:
+        filter = []
+        for i in range(len(data.columns)):
+            if data.columns[i] in output_vars:
+                filter.append(i)
+
+        # Get indexes of output variables factoring output size
+        all_out_cols = []
+        for i in range(output_window):
+            for el in filter:
+                all_out_cols.append(el + int(len(data.columns) * i))
+
     # TODO: reshape x_val and y_val
 
     values = data.values
@@ -102,6 +115,12 @@ def preprocess(data, order, split, output_window=1, val_split=0):
     y_train = sets['y_train'].values
     y_test = sets['y_test'].values
 
+    if not output_vars is None:
+        y_train = y_train[:, all_out_cols]
+        y_test = y_test[:, all_out_cols]
+    else:
+        all_out_cols = None
+
     # TODO: Refactor dictionary creation
     processed = {}
     processed['x_train'], processed['x_test'] = x_train, x_test
@@ -109,7 +128,7 @@ def preprocess(data, order, split, output_window=1, val_split=0):
     processed['x_val'], processed['y_val'] = sets['x_val'], sets['y_val']
     processed['last'] = sets['last']
 
-    return scaler, processed, original_sets
+    return scaler, processed, original_sets, all_out_cols
 
 # Creates and compiles a Bidirectional LSTM neural network
 def create_bilstm_model(x_train, num_nodes=(20, 20), activations=('relu', 'relu'), dropout=0.2, output_size=1, loss='mae', conf_int=False, seed=0):
@@ -204,13 +223,32 @@ def get_predictions(pr_test, number_predictions, available_vars):
 
     return results_pd
 
-def process_results_2(scaler, results_train, results_test, number_predictions, forecast_vars):
-    results_train = get_predictions(results_train, number_predictions, forecast_vars)
-    results_train_denormalized = pandas.DataFrame(scaler.inverse_transform(results_train))
-    results_train_denormalized.columns = forecast_vars
-    results_test = get_predictions(results_test, number_predictions, forecast_vars)
-    results_test_denormalized = pandas.DataFrame(scaler.inverse_transform(results_test))
-    results_test_denormalized.columns = forecast_vars
+# Creates an array with original amount of columns, undoes normalization and extracts columns
+def mask_results(res, forecast_vars, output_vars, scaler):
+    masked = []
+    temp = np.zeros((len(res), len(forecast_vars)))
+    for i in range(len(forecast_vars)):
+        for j in range(len(output_vars)):
+            if forecast_vars[i] == output_vars[j]:
+                masked.append(i)
+                temp[:, i] = res[:, j]
+    return scaler.inverse_transform(temp)[:, masked]
+
+def process_results_2(scaler, results_train, results_test, number_predictions, forecast_vars, output_vars=None):
+    if (not output_vars is None) and output_vars != []:
+        results_train = get_predictions(results_train, number_predictions, output_vars)
+        results_train_denormalized = pandas.DataFrame(mask_results(results_train.values, forecast_vars, output_vars, scaler))
+        results_train_denormalized.columns = output_vars
+        results_test = get_predictions(results_test, number_predictions, output_vars)
+        results_test_denormalized = pandas.DataFrame(mask_results(results_test.values, forecast_vars, output_vars, scaler))
+        results_test_denormalized.columns = output_vars
+    else:
+        results_train = get_predictions(results_train, number_predictions, forecast_vars)
+        results_train_denormalized = pandas.DataFrame(scaler.inverse_transform(results_train))
+        results_train_denormalized.columns = forecast_vars
+        results_test = get_predictions(results_test, number_predictions, forecast_vars)
+        results_test_denormalized = pandas.DataFrame(scaler.inverse_transform(results_test))
+        results_test_denormalized.columns = forecast_vars
     return results_train_denormalized, results_test_denormalized
 
 # Forecasts interval of size foecast_window using given model and last observation
@@ -234,7 +272,7 @@ def forecast_nn(model, forecast_window, inp, t, available_vars, number_predictio
         inp = inp[:, :, :-len(available_vars)]
     return predictions
 
-def process_nn_predictions(scaler, predicted, number_predictions, available_vars):
+def process_nn_predictions(scaler, predicted, number_predictions, available_vars, output_vars=None):
     pred_array = np.array(predicted)
     forecast_data = pandas.DataFrame()
     conf_int_data = pandas.DataFrame()
@@ -242,71 +280,35 @@ def process_nn_predictions(scaler, predicted, number_predictions, available_vars
     std_dev = pred_array.std(axis=1)
     means = means.reshape((means.shape[0], 1, means.shape[1]))
     std_dev = std_dev.reshape((std_dev.shape[0], 1, std_dev.shape[1]))
-    means = get_predictions(means, number_predictions, available_vars)
-    std_dev = get_predictions(std_dev, number_predictions, available_vars)
-    lower_conf = scaler.inverse_transform(means - 2 * std_dev)
-    upper_conf = scaler.inverse_transform(means + 2 * std_dev)
-    means = scaler.inverse_transform(means)
-    for i in range(len(available_vars)):
-        forecast_data[available_vars[i]] = means[:, i]
-        conf_int_data[available_vars[i] + '_lower_conf'] = lower_conf[:, i]
-        conf_int_data[available_vars[i] + '_upper_conf'] = upper_conf[:, i]
+    if (not output_vars is None) and output_vars != []:
+        means = get_predictions(means, number_predictions, output_vars)
+        std_dev = get_predictions(std_dev, number_predictions, output_vars)
+        lower_conf = mask_results((means - 2 * std_dev).values, available_vars, output_vars, scaler)
+        upper_conf = mask_results((means + 2 * std_dev).values, available_vars, output_vars, scaler)
+        means = mask_results(means.values, available_vars, output_vars, scaler)
+        for i in range(len(output_vars)):
+            forecast_data[output_vars[i]] = means[:, i]
+            conf_int_data[output_vars[i] + '_lower_conf'] = lower_conf[:, i]
+            conf_int_data[output_vars[i] + '_upper_conf'] = upper_conf[:, i]
+    else:
+        means = get_predictions(means, number_predictions, available_vars)
+        std_dev = get_predictions(std_dev, number_predictions, available_vars)
+        lower_conf = scaler.inverse_transform(means - 2 * std_dev)
+        upper_conf = scaler.inverse_transform(means + 2 * std_dev)
+        means = scaler.inverse_transform(means)
+        for i in range(len(available_vars)):
+            forecast_data[available_vars[i]] = means[:, i]
+            conf_int_data[available_vars[i] + '_lower_conf'] = lower_conf[:, i]
+            conf_int_data[available_vars[i] + '_upper_conf'] = upper_conf[:, i]
 
     return forecast_data, conf_int_data
 
-# Performs the entire neural network regression workflow: preprocessing, training, testing, result processing
-def neural_network_regression(model, data, order, split, hyperparam_data, number_predictions=1, seed=None, conf_int=False, forecast_window=None, export=False):
-    # Preprocess data
-    val_split = 0
-    forecast_vars = data.columns
-    scaler, sets, orig_sets = preprocess(data, order, split, number_predictions, val_split=val_split)
+def get_nn_gradients(model, data):
+    inp = tf.Variable(data, dtype=tf.float32)
 
-    # Fix seed for replicability
-    if seed is None:
-        seed = np.random.randint(2 ** 16)
+    with tf.GradientTape() as tape:
+        predictions = model(inp)
 
-    # Output size equals number of variables * number of steps
-    output_size = number_predictions * len(forecast_vars)
-
-    # Create model
-    if model == 'Bi-LSTM':
-        num_nodes = (hyperparam_data['lstm-first-layer-nodes'], hyperparam_data['lstm-second-layer-nodes'])
-        activations = (hyperparam_data['lstm-first-layer-activation'], hyperparam_data['lstm-second-layer-activation'])
-        model = create_bilstm_model(sets['x_train'], num_nodes=num_nodes, activations=activations, output_size=output_size, conf_int=conf_int, seed=seed)
-    elif model == 'CNN':
-        num_filters = (hyperparam_data['cnn-first-layer-filters'], hyperparam_data['cnn-second-layer-filters'])
-        kernel_sizes = (hyperparam_data['cnn-first-layer-kernel'], hyperparam_data['cnn-second-layer-kernel'])
-        activations = (hyperparam_data['cnn-first-layer-activation'], hyperparam_data['cnn-second-layer-activation'])
-        model = create_cnn_model(sets['x_train'], num_filters=num_filters, kernel_sizes=kernel_sizes, activations=activations, output_size=output_size, conf_int=conf_int, seed=seed)
-    else:
-        # This shouldn't happen
-        raise ValueError('Unknown Model')
-
-    # Train model
-    model, pr_test, pr_train, history = train_model(model, sets['x_train'], sets['y_train'], sets['x_test'], sets['y_test'], epochs=hyperparam_data['epochs'], batch_size=hyperparam_data['batch_size'])
-
-    # Obtain prediction, error and residuals
-    predicted_train, predicted = process_results_2(scaler, pr_train, pr_test, number_predictions, forecast_vars)
-    test = orig_sets['y_test']
-
-    errors = {}
-    for variable in forecast_vars:
-        errors[variable] = calculate_mae(test[variable + '+1'].values, predicted[variable].values)
-    residuals = calculate_residuals(test.values, predicted.values)
-
-    # If there is a forecast window and is above 0
-    if (not forecast_window is None) and forecast_window > 0:
-        t = hyperparam_data['t']
-        predictions = forecast_nn(model, forecast_window, sets['last'], t, forecast_vars, number_predictions)
-        forecast_data, conf_int_data = process_nn_predictions(scaler, predictions, number_predictions, forecast_vars)
-    else:
-        forecast_data = None
-        conf_int_data = None
-
-    model_arch_json = None
-    if export:
-        model_arch_json = model.to_json()
-
-    keras.backend.clear_session()
-
-    return predicted, seed, errors, residuals, history, predicted_train.values, orig_sets['y_train'], forecast_data, conf_int_data, model_arch_json
+    grads = tape.gradient(predictions, inp)
+    grads = tf.reduce_mean(grads, axis=1).numpy()[0]
+    return grads

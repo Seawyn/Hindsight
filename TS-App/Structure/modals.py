@@ -334,8 +334,11 @@ nn_results_modal = html.Div([
         dbc.ModalBody([
             'The following plot shows results for normalized input:',
             dcc.Graph(id='loss-results-plot', figure=get_empty_plot('No Neural Network results found')),
+            html.Br(),
             dcc.Dropdown('training-set-var', clearable=False),
             dcc.Graph(id='training-set-fit', figure=get_empty_plot('No Neural Network results found')),
+            html.Br(),
+            dcc.Graph(id='grad-info', figure=get_empty_plot('No Neural Network results found')),
         ]),
         dbc.ModalFooter(
             dbc.Button('Close', id='nn-results-close', className='ml-auto')

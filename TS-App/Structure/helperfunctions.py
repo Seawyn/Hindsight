@@ -433,10 +433,109 @@ def var_process(df, p, split, vars, forecast_window, export=False):
 
     return last_var, results_string
 
+# Performs the entire neural network regression workflow: preprocessing, training, testing, result processing
+# Not recommended for use outside of the dashboard
+def neural_network_regression(model, data, order, split, hyperparam_data, number_predictions=1, seed=None, conf_int=False, forecast_window=None, export=False, output_vars=None):
+    # Preprocess data
+    val_split = 0
+    forecast_vars = data.columns
+    scaler, sets, orig_sets, all_out_cols = preprocess(data, order, split, number_predictions, val_split=val_split, output_vars=output_vars)
+
+    # Fix seed for replicability
+    if seed is None:
+        seed = np.random.randint(2 ** 16)
+
+    if output_vars is None:
+        # Output size equals number of variables * number of steps
+        output_size = number_predictions * len(forecast_vars)
+    else:
+        output_size = number_predictions * len(output_vars)
+
+    # Create model
+    if model == 'Bi-LSTM':
+        num_nodes = (hyperparam_data['lstm-first-layer-nodes'], hyperparam_data['lstm-second-layer-nodes'])
+        activations = (hyperparam_data['lstm-first-layer-activation'], hyperparam_data['lstm-second-layer-activation'])
+        model = create_bilstm_model(sets['x_train'], num_nodes=num_nodes, activations=activations, output_size=output_size, conf_int=conf_int, seed=seed)
+    elif model == 'CNN':
+        num_filters = (hyperparam_data['cnn-first-layer-filters'], hyperparam_data['cnn-second-layer-filters'])
+        kernel_sizes = (hyperparam_data['cnn-first-layer-kernel'], hyperparam_data['cnn-second-layer-kernel'])
+        activations = (hyperparam_data['cnn-first-layer-activation'], hyperparam_data['cnn-second-layer-activation'])
+        model = create_cnn_model(sets['x_train'], num_filters=num_filters, kernel_sizes=kernel_sizes, activations=activations, output_size=output_size, conf_int=conf_int, seed=seed)
+    else:
+        # This shouldn't happen
+        raise ValueError('Unknown Model')
+
+    # Train model
+    model, pr_test, pr_train, history = train_model(model, sets['x_train'], sets['y_train'], sets['x_test'], sets['y_test'], epochs=hyperparam_data['epochs'], batch_size=hyperparam_data['batch_size'])
+
+    # Obtain prediction, error and residuals
+    predicted_train, predicted = process_results_2(scaler, pr_train, pr_test, number_predictions, forecast_vars, output_vars=output_vars)
+    test = orig_sets['y_test']
+
+    errors = {}
+    if (not output_vars is None) and output_vars != []:
+        for variable in output_vars:
+            errors[variable] = calculate_mae(test[variable + '+1'].values, predicted[variable].values)
+        res_vals = [v + '+1' for v in output_vars]
+        residuals = calculate_residuals(test[res_vals].values, predicted.values)
+    else:
+        for variable in forecast_vars:
+            errors[variable] = calculate_mae(test[variable + '+1'].values, predicted[variable].values)
+        residuals = calculate_residuals(test.values, predicted.values)
+
+    # If there is a forecast window and is above 0
+    if (not forecast_window is None) and forecast_window > 0:
+        t = hyperparam_data['t']
+        if (not output_vars is None) and output_vars != []:
+            predictions = forecast_nn(model, forecast_window, sets['last'], t, output_vars, number_predictions)
+            forecast_data, conf_int_data = process_nn_predictions(scaler, predictions, number_predictions, forecast_vars, output_vars=output_vars)
+        else:
+            predictions = forecast_nn(model, forecast_window, sets['last'], t, forecast_vars, number_predictions)
+            forecast_data, conf_int_data = process_nn_predictions(scaler, predictions, number_predictions, forecast_vars)
+    else:
+        forecast_data = None
+        conf_int_data = None
+
+    model_arch_json = None
+    if export:
+        model_arch_json = model.to_json()
+
+    # Get model gradients of the output with respect to each input
+    grads = get_nn_gradients(model, sets['x_train'])
+    grad_info = {}
+    for i in range(len(grads)):
+        grad_info[list(data.columns)[i]] = grads[i]
+
+    keras.backend.clear_session()
+
+    res = {'predicted': predicted, 'seed': seed, 'errors': errors, 'residuals': residuals, 'history': history}
+    res['pr_train'] = predicted_train.values
+    res['y_train'] = orig_sets['y_train']
+    res['forecast_data'] = forecast_data
+    res['conf_int_data'] = conf_int_data
+    res['grad_info'] = grad_info
+    res['model_arch_json'] = model_arch_json
+    res['all_out_cols'] = all_out_cols
+
+    return res
+
 # Trains a Neural Network model and outputs a dictionary with all data (in json format)
-def nn_process(df, model, window_size, split, available_vars, forecast_window, hyperparam_data, output_size=1, seed=None, t=5, export=False):
+def nn_process(df, model, window_size, split, available_vars, forecast_window, hyperparam_data, output_size=1, seed=None, t=5, export=False, output_vars=None):
     conf_int = not forecast_window is None
-    res, seed, errors, residuals, history, pr_train, y_train, forecast_data, conf_int_data, model_arch_json = neural_network_regression(model, df, window_size, split, hyperparam_data, number_predictions=output_size, conf_int=conf_int, forecast_window=forecast_window, export=export, seed=seed)
+
+    nn_regression_data = neural_network_regression(model, df, window_size, split, hyperparam_data, number_predictions=output_size, conf_int=conf_int, forecast_window=forecast_window, export=export, seed=seed, output_vars=output_vars)
+    res = nn_regression_data['predicted']
+    seed = nn_regression_data['seed']
+    errors = nn_regression_data['errors']
+    residuals = nn_regression_data['residuals']
+    history = nn_regression_data['history']
+    pr_train = nn_regression_data['pr_train']
+    y_train = nn_regression_data['y_train']
+    forecast_data = nn_regression_data['forecast_data']
+    conf_int_data = nn_regression_data['conf_int_data']
+    grad_info = nn_regression_data['grad_info']
+    model_arch_json = nn_regression_data['model_arch_json']
+
 
     # Convert any shape to (shape[0], 1, shape[n - 1])
     pr_train = pr_train.reshape(pr_train.shape[0], 1, pr_train.shape[-1])
@@ -452,10 +551,15 @@ def nn_process(df, model, window_size, split, available_vars, forecast_window, h
     # Rough estimate
     nobs = len(df)
 
-    last_nn = get_training_dict(df.to_json(), split, available_vars, pred_data, forecast_data, conf_int_data, errors, residuals.tolist(), nobs, seed=seed)
+    if (not output_vars is None) and output_vars != []:
+        final_vars = output_vars
+    else:
+        final_vars = available_vars
+
+    last_nn = get_training_dict(df.to_json(), split, final_vars, pred_data, forecast_data, conf_int_data, errors, residuals.tolist(), nobs, seed=seed)
     nn_res = {'loss': history.history['loss'], 'val_loss': history.history['val_loss'], 'training': y_train, 'training_res': pr_train}
 
-    return last_nn, nn_res, model_arch_json
+    return last_nn, nn_res, model_arch_json, grad_info
 
 # Creates a dictionary with all training results and converts to json format
 def get_training_dict(df, split, var, pred_data, forecast_data, conf_int_data, error, residuals, nobs, seed=None):
