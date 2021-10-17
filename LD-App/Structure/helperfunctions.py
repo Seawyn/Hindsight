@@ -5,9 +5,41 @@ import dash_cytoscape as cyto
 import dash_html_components as html
 import io
 import plotly.express as px
+import plotly.graph_objs as go
 import pandas
 from Utils.bmu import *
 from Utils.ld_parser import *
+from Utils.ldnnu import *
+import warnings
+try:
+    from Utils.dybmu import *
+except ImportError as e:
+    warnings.warn('Pydybm is not installed!')
+
+# Layout settings for all plot legends
+fig_legend_layout = {
+    'orientation': 'h',
+    'yanchor': 'bottom',
+    'y': 1.02,
+    'xanchor': 'right',
+    'x': 1
+}
+
+# Layout settings for all plot margins
+fig_margin_layout = {
+    'l': 10,
+    'r': 10,
+    'b': 10,
+    't': 0
+}
+
+# Check if Binary Dynamic Boltzmann Machine has been imported
+def check_pydybm():
+    try:
+        BinaryDyBM
+        return False
+    except NameError:
+        return True
 
 # Checks if uploaded file is a valid .csv file
 def valid_upload(filename):
@@ -15,6 +47,16 @@ def valid_upload(filename):
         return False
     (name, type) = filename.split('.')
     return (type == 'csv') and (len(name) > 0)
+
+# Automatically find delimiter of the input
+def find_delimiter(contents):
+    content_type, content_string = contents.split(',')
+    decoded = base64.b64decode(content_string)
+    # Credit
+    # https://stackoverflow.com/questions/45732459/retrieve-delimiter-infered-by-read-csv-in-pandas/45732580
+    reader = pandas.read_csv(io.StringIO(decoded.decode('utf-8')), sep=None, iterator=True)
+    sep = reader._engine.data.dialect.delimiter
+    return sep
 
 # Receives encoded upload and returns a dataframe
 def read_upload(contents):
@@ -117,6 +159,41 @@ def quantile_discretize_dataset_by_var(data, qd_var, qd_size, qd_enc):
         new_data[qd_var] = new_data[qd_var].astype('string')
     return new_data
 
+# Returns an empty plot with a given message
+def get_empty_plot(message, width=None, height=None):
+    fig = go.Figure()
+    fig.update_layout({
+        'xaxis': {
+            'visible': False
+        },
+        'yaxis': {
+            'visible': False
+        },
+        'annotations': [
+            {
+                'text': message,
+                'xref': 'paper',
+                'yref': 'paper',
+                'showarrow': False,
+                'font': {
+                    'size': 28
+                }
+            }
+        ]
+    })
+    if not height is None:
+        fig.update_layout({
+            'height': height
+        })
+    if not width is None:
+        fig.update_layout({
+            'width': width
+        })
+
+    fig.update_layout(template='ggplot2', margin={'l': 10, 'r': 10, 't': 10, 'b': 10})
+
+    return fig
+
 # Receives data as well as other parameters and fits a Restricted Boltzmann Machine
 # Returns trained model and number of input nodes for each variable
 def bm_workflow(data, chosen_subjects, use_all, cols, n_hidden, iter, l_r):
@@ -132,3 +209,69 @@ def bm_workflow(data, chosen_subjects, use_all, cols, n_hidden, iter, l_r):
     inp, input_size = process(inp)
     model = train_rbm(inp, n_hidden, iter, l_r)
     return model, input_size
+
+def dybm_workflow(data, chosen_subjects, use_all, cols, delay, decay, iter, out_vars, epochs, test_set=None):
+    df = pandas.read_json(data).sort_index()
+    id_col = df.columns[0]
+
+    if test_set is None:
+        test_set = []
+
+    # Filter subjects
+    if use_all != ['apply']:
+        temp_data = pandas.DataFrame()
+        for s in list(set(subjects + test_set)):
+            current = get_subject(df, s, id_col)
+            temp_data = temp_data.append(current, ignore_index=True)
+            df = temp_data
+
+    all_cols = [id_col] + cols + out_vars
+
+    b_df, new_cols = parse_data(df[all_cols], cols=cols, ignore_first=True)
+    _, new_out = parse_data(df[out_vars], cols=out_vars)
+
+    # Create and Train DyBM
+    train_data = pandas.DataFrame()
+    test_data = pandas.DataFrame()
+    for s in subjects(b_df, b_df.columns[0]):
+        current = get_subject(b_df, s, b_df.columns[0])
+        if s in test_set:
+            test_data = test_data.append(current, ignore_index=True)
+        else:
+            train_data = train_data.append(current, ignore_index=True)
+    if test_data.empty:
+        test_data = None
+
+    model, performances = dybm_procedure(train_data, new_cols, new_out, delay, decay=[decay], iterations=epochs, id_col=id_col, test_dataset=test_data)
+
+    performances_df = pandas.DataFrame()
+    performances_df['Training'] = performances['training']
+    if test_set != []:
+        performances_df['Validation'] = performances['validation']
+
+    return model, new_cols, new_out, performances_df
+
+def nn_workflow(data, subjects, use_all, inp_vars, out_vars, ws, dropout, epochs, test_set):
+    df = pandas.read_json(data).sort_index()
+    id_col = df.columns[0]
+
+    if test_set is None:
+        test_set = []
+
+    # Filter subjects
+    if use_all != ['apply']:
+        temp_data = pandas.DataFrame()
+        for s in list(set(subjects + test_set)):
+            current = get_subject(df, s, id_col)
+            temp_data = temp_data.append(current, ignore_index=True)
+            df = temp_data
+
+    # Create and train CNN and obtain performances and gradients
+    performances, gradients = nn_procedure(df, inp_vars, out_vars, ws, id_col, test_set=test_set, dropout=dropout, epochs=epochs)
+
+    performances_df = pandas.DataFrame()
+    performances_df['Training'] = performances['accuracy']
+    if test_set != []:
+        performances_df['Validation'] = performances['val_accuracy']
+
+    return performances_df, gradients

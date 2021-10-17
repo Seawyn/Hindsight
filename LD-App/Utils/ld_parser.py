@@ -25,11 +25,12 @@ def replace_in_col(data, col, repl):
 
 # Quantile discretization using Pandas's qcut method
 def quantile_discretize(data, qd_var, qd_size, qd_enc):
+    new_data = copy.deepcopy(data)
     encode = None
     if qd_enc == True:
         encode = False
-    data[qd_var] = pandas.qcut(data[qd_var], qd_size, labels=encode)
-    return data
+    new_data[qd_var] = pandas.qcut(new_data[qd_var], qd_size, labels=encode)
+    return new_data
 
 # Presents a list of variables of the data, followed by general statistics
 def summary(data, subject=None):
@@ -101,7 +102,7 @@ def label_encode(inp):
 
 
 # Imputation based on Last Observation Carried Forward (LOCF)
-def locf_impute(data, subject=None, cols=None):
+def locf_impute(data, subject=None, cols=None, nocb=False):
     # If subject is null, perform for all subjects
     if subject is None:
         subject = subjects(data, data.columns[0])
@@ -113,6 +114,8 @@ def locf_impute(data, subject=None, cols=None):
         current_data = get_subject(data, s, data.columns[0]).loc[:, cols]
         # Perform Forward Fill
         current_data = current_data.ffill()
+        if nocb:
+            current_data = current_data.bfill()
         data.loc[current_data.index, cols] = current_data
     return data
 
@@ -137,13 +140,17 @@ def mf_impute(inp, subject=None, cols=None, categorical_variables=None):
 
     # Encode string columns
     # Note: only categorical variables are encoded
-    labels = {}
-    for col in categorical_variables:
-        if inp[col].dtype == np.dtype(object):
-            encoded, mapping, label = label_encode(inp[col])
-            # Convert string column to encoded result
-            inp[col] = encoded
-            labels[col] = label
+    if not categorical_variables is None:
+        labels = {}
+        for col in categorical_variables:
+            if inp[col].dtype == np.dtype(object):
+                encoded, mapping, label = label_encode(inp[col])
+                # Convert string column to encoded result
+                inp[col] = encoded
+                labels[col] = label
+
+    else:
+        labels = {}
 
     # Prepare MissForest Imputer
     imputer = MissForest()
@@ -165,7 +172,7 @@ def mf_impute(inp, subject=None, cols=None, categorical_variables=None):
     return data
 
 # Imputation of discrete variables using Scikit-Learn's Iterative Imputer (based in MICE)
-def iter_impute(data, subject=None, cols=None, rounding=3):
+def iter_impute(data, subject=None, cols=None, rounding=3, max_iter=10):
     # Prepare input
     # if cols is none, perform for all columns (except first column)
     if cols is None:
@@ -182,7 +189,7 @@ def iter_impute(data, subject=None, cols=None, rounding=3):
         raise Exception("Multiple variables must be given as input")
 
     # Create imputer
-    imputer = IterativeImputer()
+    imputer = IterativeImputer(max_iter=max_iter)
     imputer.fit(inp)
 
     # Impute missing values and round to the third decimal point

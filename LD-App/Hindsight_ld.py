@@ -40,7 +40,29 @@ app.layout = html.Div(children=[
                                     'marginBottom': '10px'
                                 }
                             ),
-                            html.Div('No dataset has been selected', id='current-filename')
+                            html.Div('No dataset has been selected', id='current-filename'),
+                            html.Br(),
+                            html.Div([
+                                'Suggested separator:',
+                                dbc.Badge('None', id='suggested-separator', className='mr-1', style={'marginLeft': '10px'})
+                            ]),
+                            html.Br(),
+                            dbc.Row([
+                                dbc.Col('Separator:', width=3),
+                                dbc.Col(
+                                    dcc.RadioItems(
+                                        options=[
+                                            {'label': 'Comma (,)', 'value': ','},
+                                            {'label': 'Semicolon (;)', 'value':';'},
+                                            {'label': 'Tab (\\t)', 'value': '\t'},
+                                        ],
+                                        value=',',
+                                        id='data-sep',
+                                        inputStyle={'margin-right': '5px'},
+                                        labelStyle={'margin-right': '20px'}
+                                    ), width=8
+                                )
+                            ], justify='between'),
                         ]),
                         dbc.CardFooter(dbc.Button('Confirm', id='upload-confirm', disabled=True, style={'backgroundColor': '#58B088', 'border': 'none'})),
                     ])
@@ -86,30 +108,30 @@ app.layout = html.Div(children=[
                             style={'backgroundColor': '#333333'}
                         ),
                         dbc.CardBody(children=[
+                            dbc.Row([
+                                dbc.Col([
+                                    'Subjects:',
+                                    dcc.Dropdown(id='bm-subjects', multi=True)
+                                ], width=8),
+                                dbc.Col([
+                                    dbc.Checklist(
+                                        options=[{'label': 'Apply to all subjects', 'value': 'apply'}],
+                                        style={'marginTop': '10px'},
+                                        id='bm-all-subjects',
+                                        switch=True
+                                    )
+                                ], width=4)
+                            ]),
+                            html.Br(),
+                            dbc.Row([
+                                dbc.Col([
+                                    'Variables:',
+                                    dcc.Dropdown(id='bm-variables', multi=True)
+                                ])
+                            ]),
+                            html.Br(),
                             dbc.Tabs([
                                 dbc.Tab(label='Restricted Boltzmann Machine', id='rbm-tab', children=[
-                                    html.Br(),
-                                    dbc.Row([
-                                        dbc.Col([
-                                            'Subjects:',
-                                            dcc.Dropdown(id='bm-subjects', multi=True)
-                                        ], width=8),
-                                        dbc.Col([
-                                            dbc.Checklist(
-                                                options=[{'label': 'Apply to all subjects', 'value': 'apply'}],
-                                                style={'marginTop': '10px'},
-                                                id='bm-all-subjects',
-                                                switch=True
-                                            )
-                                        ], width=4)
-                                    ]),
-                                    html.Br(),
-                                    dbc.Row([
-                                        dbc.Col([
-                                            'Variables:',
-                                            dcc.Dropdown(id='bm-variables', multi=True)
-                                        ])
-                                    ]),
                                     html.Br(),
                                     dbc.Row([
                                         dbc.Col([
@@ -134,10 +156,58 @@ app.layout = html.Div(children=[
                                         ])
                                     ])
                                 ]),
-                                dbc.Tab(label='Dynamic Boltzmann Machine', id='dybm-tab', children=[
-                                    'Do whatever'
+                                dbc.Tab(label='Dynamic Boltzmann Machine', id='dybm-tab', disabled=check_pydybm(), children=[
+                                    html.Br(),
+                                    dbc.Row([
+                                        dbc.Col([
+                                            'Delay:',
+                                            dcc.Input(id='dybm-delay', type='number', min=1, max=100, value=2, style={'width': '100%'})
+                                        ]),
+                                        dbc.Col([
+                                            'Decay:',
+                                            dcc.Input(id='dybm-decay', type='number', min=0, max=1, value=0.5, style={'width': '100%'})
+                                        ]),
+                                        dbc.Col([
+                                            'Epochs:',
+                                            dcc.Input(id='dybm-epochs', type='number', min=1, style={'width': '100%'})
+                                        ])
+                                    ]),
+                                    html.Br(),
+                                    dbc.Row([
+                                        dbc.Col(),
+                                        dbc.Col(),
+                                        dbc.Col([
+                                            dbc.Button('Train DyBM', id='train-dybm', style={'width': '100%'})
+                                        ])
+                                    ]),
+                                ]),
+                                dbc.Tab(label='Neural Networks', id='nn-tab', children=[
+                                    html.Br(),
+                                    dbc.Row([
+                                        dbc.Col([
+                                            'Window size:',
+                                            dcc.Input(id='nn-window-size', type='number', min=1, max=20, value=1, style={'width': '100%'})
+                                        ]),
+                                        dbc.Col([
+                                            'Dropout:',
+                                            dcc.Input(id='nn-dropout', type='number', min=0, max=1, value=0.5, style={'width': '100%'})
+                                        ]),
+                                        dbc.Col([
+                                            'Epochs:',
+                                            dcc.Input(id='nn-epochs', type='number', min=1, style={'width': '100%'})
+                                        ])
+                                    ]),
+                                    html.Br(),
+                                    dbc.Row([
+                                        dbc.Col(),
+                                        dbc.Col(),
+                                        dbc.Col([
+                                            dbc.Button('Train NN', id='train-nn', style={'width': '100%'})
+                                        ])
+                                    ])
                                 ])
-                            ])
+                            ]),
+                            dybm_nn_train_modal,
                         ])
                     ])
                 ),
@@ -148,7 +218,13 @@ app.layout = html.Div(children=[
                             style={'backgroundColor': '#333333'}
                         ),
                         dbc.CardBody(children=[
-                            'Results will be displayed here'
+                            dbc.Tabs([
+                                dbc.Tab(label='RBM', id='rbm-res-tab', children=[dcc.Graph(figure=get_empty_plot('RBM Results will be displayed here'))]),
+                                dbc.Tab(label='DyBM (Relations)', id='dybm-res-tab', children=[dcc.Graph(figure=get_empty_plot('DyBM Results will be displayed here'), id='dybm-weights')]),
+                                dbc.Tab(label='DyBM (Performances)', id='dybm-perf-tab', children=[dcc.Graph(figure=get_empty_plot('DyBM Performances will be displayed here'))]),
+                                dbc.Tab(label='NN', id='nn-res-tab', children=[dcc.Graph(figure=get_empty_plot('NN Results will be displayed here'))]),
+                                dbc.Tab(label='NN (Performances)', id='nn-perf-tab', children=[dcc.Graph(figure=get_empty_plot('NN Performances will be displayed here'), id='nn-performances')]),
+                            ])
                         ], id='results-body')
                     ], style={'height': '100%'})
                 )
@@ -165,7 +241,9 @@ app.layout = html.Div(children=[
     # Hidden div holds the (possibly imputated) dataset
     html.Div(id='imputed-data', style={'display': 'none'}),
 
-    # TODO: Dynamic Boltzmann Machine
+    # Hidden div holds the last selected model between dybm and nn
+    html.Div(id='last-model', style={'display': 'none'}, children=['none']),
+
     # TODO: More imputation options
 
 ], style={'backgroundColor': '#ACF2D3', 'min-height': '100vh'})
@@ -188,9 +266,29 @@ def update_upload(contents, file_input):
             return False, file_input + ' has been selected', df.to_json()
         # Upload is not a valid .csv file
         else:
-            print('Please upload a valid .csv file')
             return True, 'Upload is not a valid .csv file', None
     return True, no_update, no_update
+
+# Automatically detect and suggest upload separator
+@app.callback(
+    dash.dependencies.Output('data-sep', 'value'),
+    dash.dependencies.Output('suggested-separator', 'children'),
+    [dash.dependencies.Input('upload-ld', 'contents')],
+    [dash.dependencies.Input('upload-ld', 'filename')]
+)
+
+def check_delimiter_and_columns(contents, file_input):
+    ctx = dash.callback_context
+    if ctx.triggered:
+        # Input must be a csv file
+        valid_csv = valid_upload(file_input)
+        if valid_csv:
+            delimiter = find_delimiter(contents)
+            # If the detected delimiter is one of the separator options
+            if delimiter in ['\t', ',', ';']:
+                badge_content = delimiter * (delimiter != '\t') + '\\t' * (delimiter == '\t')
+                return delimiter, badge_content
+    return no_update, no_update
 
 # Upload Confirm button closes upload card and displays main page
 @app.callback(
@@ -300,7 +398,6 @@ def ld_imputation(orig_data, imp_data, subjects, variables, method, d_variables,
             elif current_trigger == 'quantile-discretization':
                 df = pandas.read_json(imp_data).sort_index()
                 new_data = quantile_discretize_dataset_by_var(df, qd_var, qd_size, qd_enc)
-                print(new_data)
                 new_data = new_data.to_json()
                 return new_data
     return no_update
@@ -599,7 +696,7 @@ def check_train_bm_status(subjects, use_all, variables, n_hidden, iter, l_r):
 
 # Train BM button trains a Boltzmann Machine with the given input parameters
 @app.callback(
-    dash.dependencies.Output('results-body', 'children'),
+    dash.dependencies.Output('rbm-res-tab', 'children'),
     [dash.dependencies.Input('train-bm', 'n_clicks')],
     [dash.dependencies.Input('current-data', 'children')],
     [dash.dependencies.Input('bm-subjects', 'value')],
@@ -626,6 +723,223 @@ def train_bm(n_clicks, data, chosen_subjects, use_all, variables, n_hidden, iter
                     fig = fig.add_vline(x=border_cursor - 0.5, line_width=3, line_color='black')
                 return [dcc.Graph(figure=fig)]
     return no_update
+
+# Train DyBM or Neural Network opens Train modal
+@app.callback(
+    dash.dependencies.Output('dybm-nn-train-modal', 'is_open'),
+    dash.dependencies.Output('last-model', 'children'),
+    [dash.dependencies.Input('train-dybm', 'n_clicks')],
+    [dash.dependencies.Input('train-nn', 'n_clicks')],
+    [dash.dependencies.Input('dybm-nn-train-confirm', 'n_clicks')],
+    [dash.dependencies.State('dybm-nn-train-modal', 'is_open')]
+)
+
+def toggle_dybm_nn_train_modal(n1, n2, n3, is_open):
+    # DyBM
+    if n1:
+        return not is_open, 'dybm'
+    # NN
+    elif n2:
+        return not is_open, 'nn'
+    # Model is trained
+    elif n3:
+        return not is_open, 'none'
+    else:
+        return is_open, no_update
+
+@app.callback(
+    dash.dependencies.Output('dybm-nn-output-variables', 'options'),
+    dash.dependencies.Output('dybm-nn-test-set', 'options'),
+    [dash.dependencies.Input('current-data', 'children')]
+)
+
+def populate_train_opts(data):
+    ctx = dash.callback_context
+    if ctx.triggered:
+        df = pandas.read_json(data).sort_index()
+
+        output_options = []
+        for col in df.columns:
+            if df[col].isna().sum() == 0:
+                output_options.append({'label': col, 'value': col})
+
+        test_options = []
+        for s in subjects(df, df.columns[0]):
+            test_options.append({'label': s, 'value': s})
+
+        return output_options, test_options
+
+    return no_update, no_update
+
+# Train DyBM button is enabled once all related inputs are valid
+@app.callback(
+    dash.dependencies.Output('train-dybm', 'disabled'),
+    [dash.dependencies.Input('bm-subjects', 'value')],
+    [dash.dependencies.Input('bm-all-subjects', 'value')],
+    [dash.dependencies.Input('bm-variables', 'value')],
+    [dash.dependencies.Input('dybm-delay', 'value')],
+    [dash.dependencies.Input('dybm-decay', 'value')],
+    [dash.dependencies.Input('dybm-epochs', 'value')]
+)
+
+def check_train_dybm_status(subjects, use_all, variables, delay, decay, epochs):
+    # Either individual subjects must be specified or all subjects flag must be enabled
+    if (subjects is None or subjects == []) and (use_all is None or use_all == []):
+        return True
+    # At least two variables must be specified
+    if variables is None or len(variables) < 2:
+        return True
+    # Delay must be equal or above 2
+    if delay is None or delay < 2:
+        return True
+    # Decay must be between 0 and 1
+    if decay is None or decay < 0 or decay > 1:
+        return True
+    if epochs is None or epochs < 1:
+        return True
+    return False
+
+# Confirm Train button is enabled once output variables are provided
+@app.callback(
+    dash.dependencies.Output('dybm-nn-train-confirm', 'disabled'),
+    [dash.dependencies.Input('dybm-nn-output-variables', 'value')],
+    [dash.dependencies.Input('last-model', 'children')]
+)
+
+def check_train_dybm_nn_status(outputs, last_model):
+    if outputs is None or outputs == []:
+        return True
+    # For Neural Networks, only one output variable must be specified
+    if last_model == 'nn' and len(outputs) > 1:
+        return True
+    return False
+
+# Confirm Train button trains a DyBM if last_model equals dybm
+@app.callback(
+    dash.dependencies.Output('dybm-weights', 'figure'),
+    dash.dependencies.Output('dybm-perf-tab', 'children'),
+    [dash.dependencies.Input('dybm-nn-train-confirm', 'n_clicks')],
+    [dash.dependencies.Input('last-model', 'children')],
+    [dash.dependencies.Input('current-data', 'children')],
+    [dash.dependencies.Input('bm-subjects', 'value')],
+    [dash.dependencies.Input('bm-all-subjects', 'value')],
+    [dash.dependencies.Input('bm-variables', 'value')],
+    [dash.dependencies.Input('dybm-delay', 'value')],
+    [dash.dependencies.Input('dybm-decay', 'value')],
+    [dash.dependencies.Input('dybm-epochs', 'value')],
+    [dash.dependencies.Input('dybm-nn-output-variables', 'value')],
+    [dash.dependencies.Input('dybm-nn-test-set', 'value')]
+)
+
+def train_dybm_dash(n_clicks, l_model, data, subjects, use_all, variables, delay, decay, epochs, out_vars, test_set):
+    ctx = dash.callback_context
+    if ctx.triggered and l_model == 'dybm':
+        # Parse all triggers
+        for trigger in ctx.triggered:
+            current_trigger = trigger['prop_id'].split('.')[0]
+            if current_trigger == 'dybm-nn-train-confirm':
+                model, new_vars, new_out, recalls = dybm_workflow(data, subjects, use_all, variables, delay, decay, 5, out_vars, epochs, test_set=test_set)
+                weights = model.layers[0].layers[0].variables['W']
+                final_weights = np.zeros((weights.shape[2], weights.shape[1]))
+
+                for i in range(weights.shape[2]):
+                    final_weights[i, :] = weights[:, :, i].mean(axis=0)
+
+                # Weights heatmap
+                weight_plot = px.imshow(final_weights, color_continuous_scale='RdBu_r', x=new_vars, y=new_out)
+
+                # Performances plot
+                perf_plot = px.line(recalls, template='ggplot2')
+                perf_plot.update_layout(margin=fig_margin_layout, legend=fig_legend_layout,
+                    xaxis=dict(
+                        title='Epochs'
+                    ),
+                    yaxis=dict(
+                        title='Recall'
+                    ),
+                )
+
+                return weight_plot, [dcc.Graph(figure=perf_plot)]
+
+    return no_update
+
+# Train Neural Network option is enabled once all related inputs are valid
+@app.callback(
+    dash.dependencies.Output('train-nn', 'disabled'),
+    [dash.dependencies.Input('bm-subjects', 'value')],
+    [dash.dependencies.Input('bm-all-subjects', 'value')],
+    [dash.dependencies.Input('bm-variables', 'value')],
+    [dash.dependencies.Input('nn-window-size', 'value')],
+    [dash.dependencies.Input('nn-dropout', 'value')],
+    [dash.dependencies.Input('nn-epochs', 'value')]
+)
+
+def check_train_nn_status(subjects, use_all, variables, ws, dropout, epochs):
+    # Either individual subjects must be specified or all subjects flag must be enabled
+    if (subjects is None or subjects == []) and (use_all is None or use_all == []):
+        return True
+    # At least two variables must be specified
+    if variables is None or len(variables) < 2:
+        return True
+    if ws is None or ws < 1:
+        return True
+    if dropout is None or dropout < 0 or dropout > 1:
+        return True
+    if epochs is None or epochs < 1:
+        return True
+    return False
+
+# Confirm Train button trains a NN if last_model equals nn
+@app.callback(
+    dash.dependencies.Output('nn-res-tab', 'children'),
+    dash.dependencies.Output('nn-perf-tab', 'children'),
+    [dash.dependencies.Input('dybm-nn-train-confirm', 'n_clicks')],
+    [dash.dependencies.Input('last-model', 'children')],
+    [dash.dependencies.Input('current-data', 'children')],
+    [dash.dependencies.Input('bm-subjects', 'value')],
+    [dash.dependencies.Input('bm-all-subjects', 'value')],
+    [dash.dependencies.Input('bm-variables', 'value')],
+    [dash.dependencies.Input('nn-window-size', 'value')],
+    [dash.dependencies.Input('nn-dropout', 'value')],
+    [dash.dependencies.Input('nn-epochs', 'value')],
+    [dash.dependencies.Input('dybm-nn-output-variables', 'value')],
+    [dash.dependencies.Input('dybm-nn-test-set', 'value')]
+)
+
+def train_nn_dash(n_clicks, l_model, data, subjects, use_all, variables, ws, dropout, epochs, out_vars, test_set):
+    ctx = dash.callback_context
+    if ctx.triggered and l_model == 'nn':
+        # Parse all triggers
+        for trigger in ctx.triggered:
+            current_trigger = trigger['prop_id'].split('.')[0]
+            if current_trigger == 'dybm-nn-train-confirm':
+                perf, grads = nn_workflow(data, subjects, use_all, variables, out_vars, ws, dropout, epochs, test_set)
+
+                # Gradient plot
+                grad_plot = px.bar(x=variables, y=grads, template='ggplot2')
+                grad_plot.update_layout(margin=fig_margin_layout, legend=fig_legend_layout,
+                xaxis=dict(
+                    title=''
+                ),
+                yaxis=dict(
+                    title='Gradient'
+                ))
+
+                # Performances plot
+                perf_plot = px.line(perf, template='ggplot2')
+                perf_plot.update_layout(margin=fig_margin_layout, legend=fig_legend_layout,
+                    xaxis=dict(
+                        title='Epochs'
+                    ),
+                    yaxis=dict(
+                        title='Recall'
+                    ),
+                )
+
+                return [dcc.Graph(figure=grad_plot)], [dcc.Graph(figure=perf_plot)]
+
+    return no_update, no_update
+
 
 if __name__ == '__main__':
     app.run_server(debug=True)

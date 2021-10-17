@@ -120,3 +120,21 @@ ld_imputation_modal = html.Div(children=[
     ], id='ld-imputation-modal', size='lg'),
     dbc.Tooltip('Contains imputation methods for missing data in longitudinal data', target='ld-imputation'),
 ])
+
+dybm_nn_train_modal = html.Div(children=[
+    dbc.Modal([
+        dbc.ModalHeader('Train parameters'),
+        dbc.ModalBody([
+            html.Div(children=[
+                'Output variables:',
+                dcc.Dropdown(id='dybm-nn-output-variables', multi=True),
+                html.Br(),
+                'Test set subjects:',
+                dcc.Dropdown(id='dybm-nn-test-set', multi=True),
+            ])
+        ]),
+        dbc.ModalFooter(children=[
+            dbc.Button('Confirm', id='dybm-nn-train-confirm', className='ml-auto')
+        ])
+    ], id='dybm-nn-train-modal', size='lg')
+])
