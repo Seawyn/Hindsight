@@ -704,7 +704,7 @@ def export_current_dataset(n_clicks, data):
             current_trigger = trigger['prop_id'].split('.')[0]
             if current_trigger == 'export-ts-dataset':
                 df = pd.read_json(data).sort_index()
-                return dcc.send_data_frame(df.to_csv, 'dataset_output.csv')
+                return dcc.send_data_frame(df.to_csv, 'dataset_output.csv', index=False)
 
     raise dash.exceptions.PreventUpdate()
 
@@ -1295,9 +1295,10 @@ def check_var_availability(p, available_vars, split, forecast_window, data):
     [dash.dependencies.Input('split', 'value')],
     [dash.dependencies.Input('forecast', 'value')],
     [dash.dependencies.Input('current-data', 'children')],
+    [dash.dependencies.Input('output-variables', 'value')]
 )
 
-def check_nn_availability(nn_model, order, output_size, hyperparam, available_vars, split, forecast_window, data):
+def check_nn_availability(nn_model, order, output_size, hyperparam, available_vars, split, forecast_window, data, output_vars):
     ctx = dash.callback_context
     # Prevent update upon startup
     if ctx.triggered:
@@ -1356,6 +1357,12 @@ def check_nn_availability(nn_model, order, output_size, hyperparam, available_va
         # Forecast window (if any) must be a positive number
         elif not forecast_window is None and forecast_window < 1:
             return True
+
+        # Output variables (if any) must be included in input variables
+        if not output_vars is None:
+            for v in output_vars:
+                if v not in available_vars:
+                    return True
 
         return False
     return True
@@ -1512,7 +1519,7 @@ def train_nn(model, window_size, output_size, seed, data, available_vars, split,
                 training_set_res = pandas.DataFrame()
                 if (not output_vars is None) and output_vars != []:
                     for i in range(len(output_vars)):
-                        training_set_res[output_vars[i]] = np.array(nn_res['training'])[:, i]
+                        training_set_res[output_vars[i]] = np.array(nn_res['training'])[:, available_vars.index(output_vars[i])]
                         # Due to multi-output, results may differ in length
                         # Offset is represented by null values (ignored by plots)
                         training_set_res = training_set_res.join(pandas.DataFrame(np.array(nn_res['training_res'][:, :, i]), columns=[output_vars[i] + '_pred']))

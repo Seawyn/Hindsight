@@ -29,7 +29,7 @@ def quantile_discretize(data, qd_var, qd_size, qd_enc):
     encode = None
     if qd_enc == True:
         encode = False
-    new_data[qd_var] = pandas.qcut(new_data[qd_var], qd_size, labels=encode)
+    new_data[qd_var] = pandas.cut(new_data[qd_var], qd_size, labels=encode)
     return new_data
 
 # Presents a list of variables of the data, followed by general statistics

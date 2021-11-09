@@ -94,6 +94,9 @@ app.layout = html.Div(children=[
                             dataframe_modal,
                             html.Br(),
                             ld_imputation_modal,
+                            html.Br(),
+                            dbc.Button('Export Dataset', id='export-ld-dataset', outline=True, color='dark', style={'width': '100%'}),
+                            dcc.Download(id='download-ld-dataset'),
                         ])
                     ], style={'height': '100%'})
                 ], width=2, style={'height': '100%'})
@@ -345,6 +348,24 @@ def update_current_data(data, imp_data):
             return imp_data
     return no_update
 
+# Export Dataset button triggers download of the current dataset in csv format
+@app.callback(
+    dash.dependencies.Output('download-ld-dataset', 'data'),
+    dash.dependencies.Input('export-ld-dataset', 'n_clicks'),
+    dash.dependencies.Input('current-data', 'children')
+)
+
+def export_current_dataset(n_clicks, data):
+    ctx = dash.callback_context
+    if ctx.triggered:
+        for trigger in ctx.triggered:
+            current_trigger = trigger['prop_id'].split('.')[0]
+            if current_trigger == 'export-ld-dataset':
+                df = pandas.read_json(data).sort_index()
+                return dcc.send_data_frame(df.to_csv, 'dataset_output.csv', index=False)
+
+    raise dash.exceptions.PreventUpdate()
+
 # Uploading the dataset or performing imputation methods updates imputed data
 # Alternatively, find and replace operations update imputed data
 # Alternatively, perform quantile discretization on the given variable with the given number of quantiles
@@ -530,28 +551,6 @@ def populate_find_replace_variable_options(data):
             options.append({'label': col, 'value': col})
         return options
     return no_update
-
-# Selecting a find and replace variable changes possible value selections
-@app.callback(
-    dash.dependencies.Output('variable-value-to-replace', 'options'),
-    dash.dependencies.Output('variable-value-to-replace', 'value'),
-    dash.dependencies.Output('variable-value-to-replace', 'disabled'),
-    [dash.dependencies.Input('dataset', 'children')],
-    [dash.dependencies.Input('find-replace-variable', 'value')]
-)
-
-def populate_replace_variable_value_options(data, value):
-    ctx = dash.callback_context
-    if ctx.triggered:
-        df = pandas.read_json(data).sort_index()
-        if not value is None:
-            vals = set(df[value].values)
-            vals = list({x for x in vals if x==x})
-            options = []
-            for val in vals:
-                options.append({'label': val, 'value': val})
-            return options, vals[0], False
-    return no_update, no_update, True
 
 # Having a selected variable, value and replacement enables replace button
 @app.callback(

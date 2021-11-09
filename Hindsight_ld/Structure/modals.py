@@ -52,7 +52,7 @@ dataframe_modal = html.Div(children=[
             dbc.Row(children=[
                 dbc.Col(children=[
                     'Value:',
-                    dcc.Dropdown(id='variable-value-to-replace')
+                    dbc.Input(id='variable-value-to-replace', type='number'),
                 ]),
                 dbc.Col(children=[
                     'Replacement:',
